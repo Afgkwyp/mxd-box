@@ -13,6 +13,10 @@
 
 ## 介绍视频
 
+
+https://github.com/user-attachments/assets/63e5e7d6-94d8-436e-8455-dcc61be57646
+
+
 [![枫之助介绍视频（点击播放，约 2 分钟）](docs/intro-poster.jpg)](docs/intro.mp4)
 
 点上面的图播放（约 2 分钟，720p）。
@@ -37,6 +41,10 @@
 ```bash
 pnpm install
 pnpm tauri dev      # 开发
+
+https://github.com/user-attachments/assets/1ac38ba0-6a83-44eb-94cb-7db34ca35c33
+
+
 pnpm tauri build    # 打包，产物在 src-tauri/target/release/mxd_box.exe
 ```
 
