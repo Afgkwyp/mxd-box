@@ -1,0 +1,18 @@
+# ---------------------------------------------------------------------------
+# 打包发给朋友时，二进制里不该出现**本机**的绝对路径。
+#
+# Rust 会把 `file!()` 与 panic 位置原样编进去，实测未处理过的 exe 里有上千条
+# 形如 C:\Users\<用户名>\.cargo\registry\src\...\tauri-2.x\src\... 的字符串 ——
+# 谁拿到 exe 都能读到你的 Windows 用户名和目录结构。这些路径只出现在报错文本里，
+# 换成中性前缀不影响任何功能。
+#
+# 换一台机器构建时，把下面两条的前缀改成那台机器的路径即可
+# （改错也只是不生效，不会导致编译失败）。
+# ---------------------------------------------------------------------------
+[build]
+rustflags = [
+  # 依赖 crate 的源码路径（cargo registry）：C:\Users\Administrator\.cargo\... → /cargo/...
+  "--remap-path-prefix=C:\\Users\\Administrator\\.cargo=/cargo",
+  # 本项目自身的路径：C:\Users\Administrator\Desktop\mxd-box\... → /build-home/...
+  "--remap-path-prefix=C:\\Users\\Administrator=/build-home",
+]

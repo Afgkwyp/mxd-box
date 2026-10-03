@@ -1,0 +1,42 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# 构建产物：Rust 编译输出与打包出来的 exe（要发布时手动复制到桌面那份）
+src-tauri/target
+枫之助.exe
+枫之助-测试版.exe
+*.zip
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Python 编译缓存
+__pycache__/
+*.pyc
+
+# 本地工具/评审草稿，不公开
+.tmp/
+.freebuff/
+.claude/
+generate_xhs_cards.py
+xhs_images/
+promo-video/

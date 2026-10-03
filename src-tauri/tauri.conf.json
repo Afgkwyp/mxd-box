@@ -1,0 +1,81 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "枫之助",
+  "version": "0.1.9",
+  "identifier": "com.mxdbox.tool",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://127.0.0.1:5173",
+    "beforeDevCommand": "pnpm dev",
+    "beforeBuildCommand": "pnpm build"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "枫之助 · 怀旧服小助手",
+        "url": "index.html",
+        "width": 1264,
+        "height": 776,
+        "minWidth": 1000,
+        "minHeight": 660,
+        "resizable": true,
+        "fullscreen": false,
+        "decorations": true,
+        "transparent": false,
+        "center": true,
+        "visible": true
+      },
+      {
+        "label": "hud",
+        "title": "枫之助 · 查价悬浮窗",
+        "url": "index.html?window=hud",
+        "width": 680,
+        "height": 460,
+        "minWidth": 580,
+        "minHeight": 360,
+        "resizable": true,
+        "maximizable": false,
+        "fullscreen": false,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "center": true,
+        "visible": false,
+        "shadow": false
+      },
+      {
+        "label": "float",
+        "title": "枫之助 · 精简悬浮窗",
+        "url": "index.html?window=float",
+        "width": 470,
+        "height": 282,
+        "minWidth": 470,
+        "minHeight": 56,
+        "resizable": true,
+        "maximizable": false,
+        "fullscreen": false,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "visible": false,
+        "shadow": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": false,
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  }
+}

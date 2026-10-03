@@ -1,0 +1,1108 @@
+/* ============================================================================
+   两个悬浮窗的样式：经验窗（.xf-，方向 A「暖夜」）与查价窗（.tm-，方向 B「终端」）
+
+   ## 自适应怎么做
+
+   窗口可以被用户拖成任意大小。内容不做整体缩放（那样小窗里字会小到看不清、
+   大窗里又空），而是**按面板自己的尺寸重新排版**：面板是一个 size 容器
+   （container-type: size），里面的每一段用 @container 查询决定「放得下才显示」。
+   - 变高：多出来的高度依次放出 行内统计 → 三格统计 → 操作按钮 → 页脚；
+   - 变矮：反过来一层层收起，最矮时整个变成一条单行条；
+   - 变宽：主数字用 cqw 跟着涨；变窄：统计格从 3 列收成 2 列。
+
+   ## 为什么面板外面留一圈透明边
+
+   窗口是无边框 + 透明，缩放热区（components/WindowFrame.tsx）就放在这一圈里，
+   面板本身不被热区遮住。宽度见 WINDOW_GUTTER。
+   ============================================================================ */
+
+.ov-root {
+  position: fixed;
+  inset: 0;
+  padding: 6px; /* = WINDOW_GUTTER */
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* ============================================================== 经验窗 .xf- */
+
+.xf-panel {
+  container: xf / size;
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border-radius: 18px;
+  background: var(--ui-panel);
+  border: 1px solid var(--ui-ac-soft);
+  /* 不要 box-shadow：窗口是透明的，阴影会被窗口边界截成一圈灰色方框 */
+  color: var(--ui-tx);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  font-variant-numeric: tabular-nums;
+}
+
+.xf-head {
+  flex: none;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 6px 0 14px;
+  cursor: move;
+}
+.xf-brand {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ui-ac);
+  white-space: nowrap;
+}
+/* 频道胶囊（当前线 + 上次的线；经验窗、查价窗共用）：头部挤的时候它先让，放不下的那颗
+   整颗不显示 —— 折到第二行再被裁掉，比横着切掉半颗好看。浮层在 .ch-pills 外面，
+   不受这个裁剪影响。 */
+.xf-channel,
+.tm-channel {
+  flex: 0 1000 auto;
+  min-width: 0;
+}
+.xf-channel .ch-pills,
+.tm-channel .ch-pills {
+  flex-wrap: wrap;
+  max-height: 22px; /* 一颗紧凑胶囊的高度 */
+  overflow: hidden;
+}
+/* 浮层别高过窗口 */
+.xf-channel .ch-pop,
+.tm-channel .ch-pop {
+  max-height: calc(100cqh - 52px);
+  overflow-y: auto;
+}
+.xf-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--ui-mu);
+  white-space: nowrap;
+  min-width: 0;
+}
+.xf-status.on {
+  color: var(--ui-good);
+}
+.xf-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex: none;
+}
+.xf-status.on .xf-dot {
+  animation: xf-pulse 1.6s ease-in-out infinite;
+}
+@keyframes xf-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+.xf-spacer {
+  flex: 1;
+  min-width: 0;
+}
+
+.xf-ib {
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ui-mu);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  flex: none;
+}
+.xf-ib:hover:not(:disabled) {
+  background: var(--ui-s2);
+  color: var(--ui-tx);
+}
+.xf-ib:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.xf-ib.good {
+  color: var(--ui-good);
+}
+.xf-headact {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.xf-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 8px;
+  padding: 2px 16px 12px;
+}
+
+.xf-hero {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+.xf-lbl {
+  font-size: 11px;
+  color: var(--ui-dm);
+  white-space: nowrap;
+}
+.xf-num {
+  font-weight: 800;
+  line-height: 1.05;
+  color: var(--ui-ac);
+  /* 随窗口宽高缩放：取宽 / 高各自允许的较小值，保证既不溢出也不留大片空白 */
+  font-size: clamp(20px, min(13cqw, 24cqh), 84px);
+  white-space: nowrap;
+}
+.xf-num small {
+  font-size: 0.34em;
+  font-weight: 600;
+  color: var(--ui-mu);
+  margin-left: 0.25em;
+}
+.xf-num.blind {
+  color: var(--ui-dm);
+}
+.xf-lv {
+  text-align: right;
+  white-space: nowrap;
+  flex: none;
+}
+.xf-lv b {
+  display: block;
+  font-size: clamp(14px, min(6cqw, 11cqh), 30px);
+  font-weight: 800;
+  line-height: 1.1;
+}
+.xf-lv span {
+  font-size: 12px;
+  color: var(--ui-mu);
+}
+
+.xf-bar {
+  height: clamp(5px, 3cqh, 10px);
+  border-radius: 99px;
+  background: var(--ui-s2);
+  overflow: hidden;
+  flex: none;
+}
+.xf-bar > i {
+  display: block;
+  height: 100%;
+  border-radius: 99px;
+  background: linear-gradient(90deg, #e8722a, var(--ui-ac));
+  transition: width 0.6s ease;
+}
+
+.xf-inline {
+  display: none;
+  font-size: 12px;
+  color: var(--ui-mu);
+  gap: 10px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.xf-inline b {
+  color: var(--ui-tx);
+  font-weight: 700;
+}
+.xf-inline .good {
+  color: var(--ui-good);
+}
+
+.xf-stats {
+  display: none;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.xf-stat {
+  min-width: 0;
+}
+.xf-stat b {
+  display: block;
+  font-size: 14px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.xf-rem {
+  color: var(--ui-dm);
+  font-weight: 500;
+}
+@container xf (max-width: 359px) {
+  .xf-rem {
+    display: none;
+  }
+}
+.xf-stat b.good {
+  color: var(--ui-good);
+}
+
+.xf-actions {
+  display: none;
+  gap: 8px;
+}
+.xf-btn {
+  flex: 1;
+  height: 28px;
+  border-radius: 9px;
+  border: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  background: var(--ui-s2);
+  color: var(--ui-mu);
+}
+.xf-btn:hover:not(:disabled) {
+  color: var(--ui-tx);
+}
+.xf-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.xf-btn.go {
+  background: var(--ui-ac);
+  color: var(--ui-ac-ink);
+}
+.xf-btn.ok {
+  background: color-mix(in srgb, var(--ui-good) 18%, transparent);
+  color: var(--ui-good);
+}
+
+.xf-foot {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--ui-dm);
+  white-space: nowrap;
+  min-width: 0;
+}
+.xf-foot > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.xf-mem {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+.xf-mem i {
+  width: 44px;
+  height: 4px;
+  border-radius: 9px;
+  background: var(--ui-s2);
+  overflow: hidden;
+}
+.xf-mem i > em {
+  display: block;
+  height: 100%;
+  background: var(--ui-good);
+}
+.xf-mem.warn i > em {
+  background: var(--ui-bad);
+}
+.xf-mem.warn {
+  color: var(--ui-bad);
+}
+
+/* 说话的行：读不到 / 待确认 / 后端拒绝 —— 只在有话要说时出现，占一行 */
+.xf-note {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--ui-mu);
+  min-width: 0;
+}
+.xf-note > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.xf-note .xf-btn {
+  flex: none;
+  padding: 0 10px;
+  height: 24px;
+  font-size: 12px;
+}
+.xf-note.bad {
+  color: var(--ui-bad);
+}
+
+/* 单行条：只有面板很矮时才出现，头部与主体整体让位 */
+.xf-strip {
+  display: none;
+  flex: 1;
+  min-height: 0;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px 0 14px;
+  font-size: 13px;
+  color: var(--ui-mu);
+  cursor: move;
+  white-space: nowrap;
+  min-width: 0;
+}
+.xf-strip .xf-num {
+  font-size: clamp(14px, 6cqw, 20px);
+}
+/* 进度条吃剩下的宽度；没地方就自己缩没（旁边的百分比已经说了同一件事） */
+.xf-strip .xf-bar {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 5px;
+}
+/* 单行条里的频道胶囊：只看不点（窗口只有一行高，浮层开不出来）。
+   自己换线留下的「上次」不占这点地方，断线留下的才显示。 */
+.xf-strip .xf-channel {
+  pointer-events: none;
+}
+.xf-strip .ch-last:not(.ch-dropped):not(:first-child),
+.xf-strip .ch-pills svg {
+  display: none;
+}
+/* 两颗都要显示时（断线后），区服名让位：单行条里线号比区服名要紧 */
+.xf-strip .ch-main:has(~ .ch-dropped) .ch-server {
+  display: none;
+}
+.xf-strip .xf-lvline {
+  color: var(--ui-tx);
+  font-weight: 700;
+}
+
+/* ---- 高度分档（面板高度，不是窗口高度：窗口 = 面板 + 上下各 6px）---- */
+
+/* 矮：整个换成单行条 */
+@container xf (max-height: 79px) {
+  .xf-head,
+  .xf-body {
+    display: none;
+  }
+  .xf-strip {
+    display: flex;
+  }
+}
+/* 没到 110：有话要说的那一行也放不下，先让位（错误还能在展开后看到） */
+@container xf (max-height: 109px) {
+  .xf-note {
+    display: none;
+  }
+}
+/* 中矮：头 + 主数字 + 进度条 + 一行小字（再矮就放不下第四行了） */
+@container xf (min-height: 136px) {
+  .xf-inline {
+    display: flex;
+  }
+}
+/* 中：换成三格统计，操作按钮留在头部图标里 */
+@container xf (min-height: 184px) {
+  .xf-inline {
+    display: none;
+  }
+  .xf-stats {
+    display: grid;
+  }
+}
+/* 高：底部放大操作按钮 + 页脚，头部的操作图标让位 */
+@container xf (min-height: 248px) {
+  .xf-actions,
+  .xf-foot {
+    display: flex;
+  }
+  .xf-headact {
+    display: none;
+  }
+}
+
+/* ---- 宽度分档 ---- */
+/* 默认宽度（窗口 470 = 面板 458）下，头部要完整放下「品牌 + 区服｜线 + 上次的线 + 计时」，
+   所以「记录中 / 已暂停」这两个字到更宽才出现（圆点 / 暂停符号已经说明了状态）。 */
+@container xf (max-width: 479px) {
+  .xf-word {
+    display: none;
+  }
+}
+/* 比默认宽度窄（用户自己拖小的）就放不下了，按有用程度让位：
+   · 断线后留下的「上次」（.ch-dropped，掉线重登时就靠它）最要紧 —— 品牌名和区服名让给它；
+   · 自己换线留下的「上次」不要紧 —— 它让位，区服名照常显示（点胶囊仍能在浮层里看到）。 */
+@container xf (max-width: 375px) {
+  .xf-head:has(.ch-dropped) .xf-brand,
+  .xf-channel .ch-main:has(~ .ch-dropped) .ch-server,
+  .xf-channel .ch-last:not(.ch-dropped):not(:first-child) {
+    display: none;
+  }
+}
+/* 单行条在默认宽度下放不下进度条：让给频道胶囊（等级百分比已经说了同一件事） */
+@container xf (max-width: 469px) {
+  .xf-strip .xf-bar {
+    display: none;
+  }
+}
+/* 中等高度时头部多出「暂停 / 结束」两个图标，比默认宽度窄时品牌名让位给频道胶囊
+   （只管头部；单行条里的品牌名一直留着） */
+@container xf (max-height: 247px) and (max-width: 449px) {
+  .xf-head .xf-brand {
+    display: none;
+  }
+}
+@container xf (max-width: 279px) {
+  .xf-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .xf-stat.opt {
+    display: none;
+  }
+  .xf-status .xf-clock {
+    display: none;
+  }
+}
+@container xf (max-width: 229px) {
+  .xf-brand,
+  .xf-channel {
+    display: none;
+  }
+  .xf-lv span {
+    display: none;
+  }
+  .xf-strip .xf-lvline {
+    display: none;
+  }
+}
+
+/* ============================================================== 动效 */
+
+@keyframes ov-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes ov-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes ov-rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes ov-pop {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* 收起前先清成透明（class 由 WindowFrame 的 useEnterAnimation 加）：窗口隐藏后，系统那边留着的
+   是最后画出来的一帧，下次呼出会先贴出它 —— 留一张空的，入场动画才不会「先闪一下再淡入」。 */
+html.ov-hidden .ov-root {
+  opacity: 0;
+}
+
+/* 悬浮窗每次被快捷键呼出时，面板轻轻浮上来（class 由 WindowFrame 的 useEnterAnimation 加） */
+html.ov-enter .xf-panel,
+html.ov-enter .tm-panel {
+  animation: ov-enter 0.26s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+/* 容器查询把某一段从 display:none 放出来时，动画会自动重播 —— 拖窗口时内容是「长出来」而不是「跳出来」 */
+.xf-strip,
+.xf-inline,
+.xf-stats,
+.xf-actions,
+.xf-foot,
+.xf-note {
+  animation: ov-fade 0.28s ease both;
+}
+.anim-fade {
+  animation: ov-fade 0.22s ease both;
+}
+
+/* ============================================================== 查价窗 .tm-
+   和主窗口同一套语言（方向 A「暖夜」）：颜色全走 --ui-* 令牌，圆角、琥珀色主按钮、
+   分段页签都与主窗口一致；版式仍是「左列表 + 右详情」。 */
+
+.tm-root {
+  --tm-bg: var(--ui-panel);
+  --tm-p1: var(--ui-s1);
+  --tm-p2: var(--ui-s2);
+  --tm-line: var(--ui-line);
+  --tm-tx: var(--ui-tx);
+  --tm-mu: var(--ui-mu);
+  --tm-dm: var(--ui-dm);
+  --tm-ac: var(--ui-ac);
+  --tm-acs: var(--ui-ac-soft);
+  --tm-ink: var(--ui-ac-ink);
+  --tm-wn: var(--ui-ac);
+  --tm-in: var(--ui-info);
+  --tm-bd: var(--ui-bad);
+  --tm-good: var(--ui-good);
+}
+
+.tm-panel {
+  container: tm / size;
+  width: 100%;
+  height: 100%;
+  border-radius: 18px;
+  background: var(--tm-bg);
+  border: 1px solid color-mix(in srgb, var(--ui-ac) 32%, transparent);
+  color: var(--tm-tx);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  font-size: 13px;
+}
+.tm-mono {
+  font-variant-numeric: tabular-nums;
+}
+
+.tm-head {
+  flex: none;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 8px 0 16px;
+  cursor: move;
+}
+.tm-brand {
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--tm-ac);
+  white-space: nowrap;
+}
+.tm-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 11px;
+  background: var(--tm-p1);
+  border: 1px solid var(--tm-line);
+  cursor: default;
+}
+.tm-tab {
+  padding: 0 13px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--tm-mu);
+  background: none;
+  border: 0;
+  cursor: pointer;
+  transition: background-color 0.18s, color 0.18s;
+}
+.tm-tab:hover {
+  color: var(--tm-tx);
+}
+.tm-tab.on {
+  background: var(--tm-ac);
+  color: var(--tm-ink);
+  font-weight: 700;
+}
+.tm-meta {
+  font-size: 12px;
+  color: var(--tm-mu);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.tm-ib {
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--tm-mu);
+  background: none;
+  border: 0;
+  cursor: pointer;
+  flex: none;
+  transition: background-color 0.15s, color 0.15s;
+}
+.tm-ib:hover {
+  color: var(--tm-tx);
+  background: var(--tm-p2);
+}
+
+.tm-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 14px 10px;
+  position: relative;
+}
+.tm-select {
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--tm-line);
+  border-radius: 10px;
+  background: var(--tm-p1);
+  color: var(--tm-ac);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  max-width: 100px;
+  transition: border-color 0.18s;
+}
+.tm-select:hover,
+.tm-select:focus {
+  outline: none;
+  border-color: var(--tm-ac);
+}
+.tm-input {
+  flex: 1;
+  min-width: 0;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 11px;
+  border: 1.5px solid var(--tm-line);
+  border-radius: 10px;
+  background: var(--tm-p1);
+  transition: border-color 0.18s, box-shadow 0.18s;
+}
+.tm-input:focus-within {
+  border-color: var(--tm-ac);
+  box-shadow: 0 0 0 3px var(--tm-acs);
+}
+.tm-input > b {
+  color: var(--tm-mu);
+  display: flex;
+}
+.tm-input input {
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: 0;
+  outline: none;
+  color: var(--tm-tx);
+  font-size: 14px;
+  font-family: inherit;
+}
+.tm-input input::placeholder {
+  color: var(--tm-dm);
+}
+.tm-kbd {
+  font-size: 11px;
+  padding: 1px 6px;
+  border: 1px solid var(--tm-line);
+  border-radius: 6px;
+  color: var(--tm-mu);
+  background: var(--tm-p2);
+  white-space: nowrap;
+}
+.tm-go {
+  height: 34px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 10px;
+  color: var(--tm-ink);
+  background: var(--tm-ac);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: filter 0.15s, transform 0.12s;
+}
+.tm-go:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+.tm-go:active:not(:disabled) {
+  transform: scale(0.96);
+}
+.tm-go:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.tm-drop {
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  top: calc(100% - 8px);
+  z-index: 30;
+  border: 1px solid var(--tm-line);
+  border-radius: 12px;
+  background: var(--tm-bg);
+  overflow: hidden;
+  animation: ov-pop 0.16s ease both;
+}
+.tm-drop .cap {
+  padding: 7px 12px 3px;
+  font-size: 11px;
+  color: var(--tm-dm);
+}
+.tm-drop button {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  border: 0;
+  background: none;
+  color: var(--tm-tx);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.tm-drop button.hl,
+.tm-drop button:hover {
+  background: var(--tm-acs);
+  color: var(--tm-ac);
+}
+
+.tm-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: 8px;
+  padding: 0 8px;
+}
+.tm-list {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.tm-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+.tm-th {
+  flex: none;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  font-size: 11px;
+  color: var(--tm-dm);
+}
+.tm-row-in {
+  animation: ov-rise 0.28s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation-delay: calc(var(--i, 0) * 32ms);
+}
+.tm-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 0 12px;
+  width: 100%;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  color: var(--tm-tx);
+  text-align: left;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background-color 0.15s, box-shadow 0.15s;
+  animation: ov-rise 0.28s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation-delay: calc(var(--i, 0) * 32ms);
+}
+.tm-row:hover {
+  background: var(--tm-p1);
+}
+.tm-row.sel {
+  background: var(--tm-acs);
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--ui-ac) 45%, transparent);
+}
+.tm-row .idx {
+  width: 16px;
+  color: var(--tm-dm);
+  flex: none;
+}
+.tm-row.sel .idx {
+  color: var(--tm-ac);
+}
+.tm-row .nm {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tm-row .px {
+  flex: none;
+  min-width: 84px;
+  text-align: right;
+  color: var(--tm-wn);
+  font-weight: 800;
+}
+.tm-row img {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+  flex: none;
+}
+
+.tm-detail {
+  width: clamp(210px, 38cqw, 300px);
+  flex: none;
+  margin-bottom: 8px;
+  padding: 12px 14px;
+  overflow-y: auto;
+  border-radius: 14px;
+  background: var(--tm-p1);
+  border: 1px solid var(--tm-line);
+}
+.tm-inline-detail {
+  display: none;
+  margin: 2px 0 6px;
+  padding: 8px 12px 10px;
+  border-radius: 12px;
+  background: var(--tm-p1);
+  animation: ov-pop 0.2s ease both;
+}
+.tm-kv {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 5px 0;
+  border-top: 1px solid var(--tm-line);
+  font-size: 12px;
+}
+.tm-kv > span:first-child {
+  color: var(--tm-mu);
+}
+.tm-big {
+  font-size: 28px;
+  font-weight: 800;
+  color: var(--tm-wn);
+  line-height: 1.2;
+  margin: 2px 0 8px;
+}
+.tm-empty {
+  height: 100%;
+  min-height: 90px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: var(--tm-dm);
+  font-size: 13px;
+  text-align: center;
+  padding: 12px;
+  line-height: 1.6;
+  animation: ov-fade 0.3s ease both;
+}
+.tm-link {
+  color: var(--tm-in);
+  background: none;
+  border: 0;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 0;
+}
+.tm-link:hover {
+  text-decoration: underline;
+}
+.tm-tag {
+  font-size: 10px;
+  padding: 0 7px;
+  border-radius: 99px;
+  background: var(--tm-acs);
+  color: var(--tm-ac);
+  white-space: nowrap;
+}
+.tm-tag.boss {
+  background: color-mix(in srgb, var(--tm-bd) 16%, transparent);
+  color: var(--tm-bd);
+}
+
+.tm-err {
+  margin: 4px 6px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--tm-bd) 12%, transparent);
+  color: var(--tm-bd);
+  font-size: 13px;
+  line-height: 1.5;
+  animation: ov-rise 0.22s ease both;
+}
+
+.tm-verdict {
+  margin: 4px 6px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1.5px solid var(--tm-line);
+  background: var(--tm-p1);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  animation: ov-rise 0.25s ease both;
+}
+.tm-verdict.hit {
+  border-color: var(--tm-bd);
+  color: var(--tm-bd);
+}
+.tm-verdict.other_server,
+.tm-verdict.similar {
+  border-color: var(--tm-wn);
+  color: var(--tm-wn);
+}
+.tm-verdict.clear {
+  border-color: var(--tm-good);
+  color: var(--tm-good);
+}
+.tm-verdict .sub {
+  color: var(--tm-mu);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.tm-mob {
+  border-radius: 12px;
+}
+.tm-mob-body {
+  padding: 4px 12px 10px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  animation: ov-fade 0.2s ease both;
+}
+.tm-drop-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  border: 1px solid var(--tm-line);
+  border-radius: 9px;
+  background: none;
+  color: var(--tm-tx);
+  font-size: 12px;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  transition: background-color 0.15s;
+}
+.tm-drop-row:hover {
+  background: var(--tm-p1);
+}
+.tm-drop-row.hit {
+  border-color: color-mix(in srgb, var(--tm-good) 55%, transparent);
+}
+.tm-chip {
+  padding: 2px 9px;
+  border: 1px solid var(--tm-line);
+  border-radius: 99px;
+  font-size: 11px;
+  color: var(--tm-mu);
+  background: none;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+.tm-chip:hover {
+  color: var(--tm-in);
+  border-color: var(--tm-in);
+}
+
+.tm-foot {
+  flex: none;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0 16px;
+  font-size: 11px;
+  color: var(--tm-dm);
+  white-space: nowrap;
+  overflow: hidden;
+}
+.tm-foot .src {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---- 宽度分档：窄了就把右侧详情收进行内，再窄就把次要文字收掉 ---- */
+@container tm (max-width: 559px) {
+  .tm-detail {
+    display: none;
+  }
+  .tm-row.sel + .tm-inline-detail {
+    display: block;
+  }
+}
+@container tm (max-width: 519px) {
+  .tm-meta {
+    display: none;
+  }
+  /* 和经验窗同一套让位规则：断线留下的「上次」优先于区服名，自己换线留下的让位 */
+  .tm-channel .ch-main:has(~ .ch-dropped) .ch-server,
+  .tm-channel .ch-last:not(.ch-dropped):not(:first-child) {
+    display: none;
+  }
+}
+@container tm (max-width: 479px) {
+  .tm-select {
+    max-width: 76px;
+  }
+  .tm-bar .tm-kbd {
+    display: none;
+  }
+  .tm-foot .hint {
+    display: none;
+  }
+}
+/* ---- 高度分档：矮了先收页脚，再收表头 ---- */
+@container tm (max-height: 339px) {
+  .tm-foot,
+  .tm-th {
+    display: none;
+  }
+}

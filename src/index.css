@@ -1,0 +1,391 @@
+@import "tailwindcss";
+@import "./styles/overlay.css";
+
+/* ============================================================== 主题（深 / 浅）
+   本项目所有界面都用 Tailwind 调色板类（bg-slate-900 / text-slate-100 /
+   border-white/10 …）。Tailwind v4 会把这些编译成 var(--color-*) —— 带透明度的类
+   还会额外发一条 @supports (color:color-mix(...)) 规则再引用一次变量，WebView2
+   支持 color-mix，所以最终生效的也是变量。
+
+   于是：只要在 <html> 上整组替换这些变量，整个应用（含图表、输入框、开关、
+   HUD 毛玻璃面板）就整体换肤 —— 不用逐个组件改类名，也就不会漏掉某一处。
+
+   浅色不是简单反相，而是把 slate 的明度阶梯镜像（100↔900、400↔600…），
+   并把「用作文字的强调色档位」压深，保证白底上依然读得清。
+
+   切换逻辑见 src/lib/theme.ts（主窗口右上角 / HUD 标题栏的太阳-月亮按钮）。 */
+
+@layer base {
+  :root {
+    color-scheme: dark;
+
+    /* 页面底色与前景 */
+    --app-bg: #0d1117;
+    --app-fg: #e6edf3;
+
+    --scrollbar-track: rgba(0, 0, 0, 0.2);
+    --scrollbar-thumb: rgba(255, 255, 255, 0.15);
+    --scrollbar-thumb-hover: rgba(255, 255, 255, 0.3);
+
+    /* 面板底色（.glass-panel / .hud-panel）*/
+    --glass-bg: rgba(18, 22, 34, 0.85);
+    --glass-border: rgba(255, 255, 255, 0.08);
+    --hud-bg: #0d1117;
+    --hud-ring: rgba(234, 179, 8, 0.25);
+    --hud-glow: none;
+
+    /* recharts 的 SVG 属性不接受 var()，图表从 JS 里读这两个值 */
+    --chart-grid: #1e293b;
+    --chart-axis: #64748b;
+
+    /* 项目初期留下的 shadcn 占位变量（当前代码未引用，保留以免影响未知引用） */
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+    --card: 222.2 84% 6.9%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222.2 84% 6.9%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 43 96% 56%;
+    --primary-foreground: 222.2 47.4% 11.2%;
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+    --accent: 217.2 32.6% 17.5%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 62.8% 50.6%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 217.2 32.6% 17.5%;
+    --input: 217.2 32.6% 17.5%;
+    --ring: 43 96% 56%;
+  }
+
+  body {
+    background-color: var(--app-bg);
+    color: var(--app-fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    user-select: none;
+    -webkit-user-select: none;
+    overflow: hidden;
+    transition: background-color 0.2s ease, color 0.2s ease;
+  }
+
+  /* 桌面应用不该出现页面级滚动条：各视图自己管内部滚动 */
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+}
+
+
+/* ------------------------------------------------------------------ 深色主题（暖夜）
+   界面重设计（方向 A「暖夜」）：把 Tailwind 的 slate / amber 阶梯整组换成暖色。
+   旧页面里写的 bg-slate-900 / text-amber-400 … 全是走这些变量，所以一处替换、全站换肤。
+   放在 @layer 之外：无层样式优先级高于 @layer theme 里 Tailwind 自己的默认值。 */
+html {
+  --color-slate-950: #15120f;
+  --color-slate-900: #1c1713;
+  --color-slate-800: #2a231c;
+  --color-slate-700: #3b3229;
+  /* 夜间文字对比度：600/500 原来只有 3.5~5:1，小字（10-11px）压在深底上发虚，整体抬亮一档 */
+  --color-slate-600: #9a8e7c;
+  --color-slate-500: #b0a492;
+  --color-slate-400: #c8bda9;
+  --color-slate-300: #ded4c2;
+  --color-slate-200: #efe6d5;
+  --color-slate-100: #fbf3e6;
+
+  --color-amber-200: #fddcb4;
+  --color-amber-300: #fbc58a;
+  --color-amber-400: #f7b062;
+  --color-amber-500: #f5a04a;
+  --color-amber-600: #dc8630;
+
+  --app-bg: #15120f;
+  --app-fg: #fbf3e6;
+  --hud-bg: #1c1713;
+  --hud-ring: rgba(245, 160, 74, 0.28);
+  --glass-bg: rgba(28, 23, 19, 0.88);
+  --chart-grid: #2a231c;
+  --chart-axis: #a89c8a;
+
+  /* 新组件用的语义令牌（overlay / shell 直接引用，不再依赖 slate 阶梯） */
+  --ui-bg: #15120f;
+  --ui-side: #1a1612;
+  --ui-s1: #211c17;
+  --ui-s2: #2b241d;
+  --ui-line: rgba(255, 232, 200, 0.09);
+  --ui-tx: #fbf3e6;
+  --ui-mu: #c4b9a6;
+  --ui-dm: #9a8e7c;
+  --ui-ac: #f5a04a;
+  --ui-ac-soft: rgba(245, 160, 74, 0.14);
+  --ui-ac-ink: #2a1706;
+  --ui-good: #93d47e;
+  --ui-bad: #f08272;
+  --ui-info: #7fc4ea;
+  /* 悬浮窗面板必须不透明：透明窗口里半透明底色会让字体退回灰度抗锯齿，小字更糊 */
+  --ui-panel: #1b1612;
+}
+
+/* ------------------------------------------------------------------ 浅色主题
+   注意：这一段刻意放在 @layer 之外 —— 无层样式优先级高于任何 @layer，
+   因此一定能盖掉 Tailwind 在 @layer theme 里定义的 --color-* 。 */
+html.theme-light {
+  color-scheme: light;
+
+  /* slate 明度阶梯镜像：数字越大 → 浅色下越浅 */
+  --color-slate-950: #f4ecdc; /* 页面底色 */
+  --color-slate-900: #fffaf0; /* 面板 */
+  --color-slate-800: #f6eddb; /* 输入框 / 列表行 */
+  --color-slate-700: #eadfc6; /* 次要按钮 */
+  /* 600 是「最弱的那一档提示文字」和输入框占位符。
+     它原来是 #a8b4c4 —— 压在白面板上对比度只有 2.0:1，等于看不见。
+     深色主题里「数字越大越暗」表示「越弱」；浅色主题里「越弱」必须仍然**够深**，
+     只是比 500 淡一点点，所以这里取 4.7:1 的灰（slate-500 是 4.55:1）。 */
+  --color-slate-600: #7a6b57;
+  --color-slate-500: #776853;
+  --color-slate-400: #5c4c39;
+  --color-slate-300: #46392a;
+  --color-slate-200: #30261b;
+  --color-slate-100: #1f1810; /* 主要文字 */
+
+  /* white 在本项目里只承担「半透明描边 / hover 蒙层 / 分隔线 / 开关滑块」，
+     浅色下必须翻成深色才看得见（带 /10 /20 的类也走这个变量） */
+  --color-white: #2a1f14;
+
+  /* 强调色：深色端（横幅底色）翻浅，浅色端（文字与图标）压深。
+     500 / 600 是实心按钮色，保持原样，按钮上的文字另有 fixup 保证是深色。 */
+  --color-red-950: #fee2e2;
+  --color-red-900: #fecaca;
+  --color-red-800: #fca5a5;
+  --color-red-400: #dc2626;
+  --color-red-300: #b91c1c;
+  --color-red-200: #991b1b;
+  --color-red-100: #7f1d1d;
+  --color-amber-200: #8a4a0a;
+  --color-amber-300: #a85a08;
+  --color-amber-400: #c4690a;
+  --color-emerald-950: #d1fae5;
+  --color-emerald-300: #047857;
+  --color-emerald-400: #059669;
+  --color-sky-400: #0284c7;
+
+  /* 「浅底上的深字」那一组。
+     深色主题里 emerald-200 / sky-200 本来就是**亮色文字**（压在半透明的深色底上），
+     浅色主题里底变成了淡绿/淡蓝，字要是还保持亮色就彻底看不见了 ——
+     用户截图里「日间主题下所有提示文字都看不清」说的就是这几条。
+     所以这里把它们压成同色系的深色。 */
+  --color-emerald-200: #065f46;
+  --color-emerald-100: #064e3b;
+  --color-sky-200: #075985;
+  --color-sky-100: #0c4a6e;
+  --color-amber-100: #78350f;
+  --color-cyan-200: #155e75;
+  --color-teal-200: #115e59;
+
+  --app-bg: #f4ecdc;
+  --app-fg: #1f1810;
+
+  --ui-bg: #f4ecdc;
+  --ui-side: #efe4cf;
+  --ui-s1: #fffaf0;
+  --ui-s2: #f3e8d2;
+  --ui-line: rgba(74, 51, 32, 0.14);
+  --ui-tx: #1f1810;
+  --ui-mu: #6b5b47;
+  --ui-dm: #8f7e68;
+  --ui-ac: #d9770a;
+  --ui-ac-soft: rgba(217, 119, 10, 0.13);
+  --ui-ac-ink: #ffffff;
+  --ui-good: #3f8a22;
+  --ui-bad: #c9402e;
+  --ui-info: #1f7ab0;
+  --ui-panel: #fffaf0;
+
+  --scrollbar-track: rgba(15, 23, 42, 0.06);
+  --scrollbar-thumb: rgba(15, 23, 42, 0.2);
+  --scrollbar-thumb-hover: rgba(15, 23, 42, 0.35);
+
+  --glass-bg: rgba(255, 255, 255, 0.9);
+  --glass-border: rgba(15, 23, 42, 0.1);
+  --hud-bg: #fffaf0;
+  --hud-ring: rgba(217, 119, 6, 0.35);
+  --hud-glow: none;
+
+  --chart-grid: #cbd5e1;
+  --chart-axis: #475569;
+}
+
+/* fixup：实心琥珀/翠绿按钮上的文字。
+   text-slate-950 在浅色主题里被镜像成了浅色，会把按钮文字冲掉，单独纠回来。 */
+html.theme-light .text-slate-950 {
+  color: #0b1220;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}
+
+/* Frosted glass acrylic style */
+.glass-panel {
+  background: var(--glass-bg);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--glass-border);
+}
+
+/* 无边框悬浮窗（查价 / 精简 / 开服提醒）：这些窗口本身是透明的
+   （tauri.conf 里 transparent=true），而全站 body 有底色 —— 底色会让窗口
+   显示成一个突兀的方块，所以这里把它让开，只留面板自己那一块。
+   加类的地方见 src/App.tsx（按 URL 上的 ?window= 判断，早于首次渲染）。 */
+html.overlay-window,
+html.overlay-window body {
+  background: transparent;
+}
+
+/* 悬浮窗面板。
+
+   曾经是「毛玻璃」：半透明底色 + backdrop-filter: blur()。但它盖在游戏画面上，
+   背后的场景会透上来（亮暗不停变），文字对比度跟着飘，读起来很费劲；
+   圆角外面那一圈半透明底色也让两块面板看着像糊了一层。
+   现在改成**完全不透明的实心面板** —— 悬浮窗的全部价值是「一眼看清」，
+   不是好看。 */
+.hud-panel {
+  background: var(--hud-bg);
+  border: 1px solid var(--hud-ring);
+  box-shadow: var(--hud-glow);
+}
+
+/* ============================================================================ 动效
+   原则：**快而轻**（200~400ms、只动 opacity / transform，不动布局），给「点了有反馈、
+   切了有过渡」的感觉，但不让人等。设置里关掉「界面动效」时全部停掉（文件末尾）。
+   悬浮窗自己的动效在 styles/overlay.css。 */
+
+@keyframes page-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* 切页：整页淡入上浮（MainView 以页面 id 为 key） */
+.anim-page {
+  animation: page-in 0.34s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+/* 一组卡片依次入场（总览页）：每张错开 55ms，最多排到第 9 张 */
+.anim-stagger > * {
+  animation: page-in 0.42s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.anim-stagger > *:nth-child(2) { animation-delay: 55ms; }
+.anim-stagger > *:nth-child(3) { animation-delay: 110ms; }
+.anim-stagger > *:nth-child(4) { animation-delay: 165ms; }
+.anim-stagger > *:nth-child(5) { animation-delay: 220ms; }
+.anim-stagger > *:nth-child(6) { animation-delay: 275ms; }
+.anim-stagger > *:nth-child(7) { animation-delay: 330ms; }
+.anim-stagger > *:nth-child(8) { animation-delay: 385ms; }
+.anim-stagger > *:nth-child(n + 9) { animation-delay: 440ms; }
+.anim-fade {
+  animation: fade-in 0.22s ease both;
+}
+.anim-pop {
+  animation: pop-in 0.28s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.anim-toast {
+  animation: toast-in 0.24s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+/* 所有按钮：颜色渐变 + 按下缩一点（有「按到了」的手感） */
+button {
+  transition:
+    background-color 0.16s ease,
+    color 0.16s ease,
+    border-color 0.16s ease,
+    opacity 0.16s ease,
+    transform 0.12s cubic-bezier(0.3, 0.7, 0.3, 1);
+}
+button:not(:disabled):active {
+  transform: scale(0.96);
+}
+
+/* 可点的小卡片 / 行：悬停时轻轻抬起 */
+.lift {
+  transition:
+    transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1),
+    border-color 0.2s ease,
+    background-color 0.2s ease;
+}
+.lift:hover {
+  transform: translateY(-2px);
+}
+
+/* 输入框聚焦：琥珀色外圈光晕（各页输入框共用，不用每处再写 ring 类） */
+input:not([type="checkbox"]):not([type="range"]):focus,
+select:focus,
+textarea:focus {
+  box-shadow: 0 0 0 3px var(--ui-ac-soft);
+}
+
+/* 输入框聚焦：外圈光晕缓缓出现，而不是瞬间硬切 */
+input,
+select,
+textarea {
+  transition:
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    background-color 0.18s ease;
+}
+
+/* 动效总开关（设置 → 通用 →「界面动效」，见 lib/motion.ts）。
+   **不跟系统的 prefers-reduced-motion 走**：很多玩家为了性能关了 Windows 的动画效果，
+   那样他们在这个软件里一个动效都看不到；要不要动效由软件自己的开关说了算，默认开。 */
+html[data-motion="off"] *,
+html[data-motion="off"] *::before,
+html[data-motion="off"] *::after {
+  animation-duration: 0.01ms !important;
+  animation-delay: 0ms !important;
+  transition-duration: 0.01ms !important;
+}

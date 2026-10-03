@@ -1,0 +1,199 @@
+/* ============================================================================ 小结卡片（分享弹窗）
+   卡面本身是 canvas 画的（lib/shareCard.ts）；这里只管「拿在手里晃」的那部分：
+   翻面入场、跟着鼠标倾斜、镭射 / 星点 / 高光三层。
+
+   三层都靠 `--px / --py`（鼠标在卡上的位置，0~100）和 `--foil`（稀有度给的强度，0~1）驱动，
+   值由 ShareCardDialog 每帧写进来 —— 不走 React 状态，否则每动一下鼠标都要重渲染整张卡。 */
+
+/* `--foil` / `--holo-accent` 由弹窗按稀有度写在舞台上，卡片和身后的放射光都从这里继承 */
+.holo-stage {
+  --foil: 0.5;
+  perspective: 1400px;
+}
+
+.holo-card {
+  --px: 50;
+  --py: 50;
+  --rx: 0deg;
+  --ry: 0deg;
+  position: relative;
+  height: 100%;
+  aspect-ratio: 600 / 840;
+  transform-style: preserve-3d;
+  animation: holo-flip-in 0.95s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.holo-card__tilt {
+  position: absolute;
+  inset: 0;
+  transform: rotateX(var(--rx)) rotateY(var(--ry));
+  transform-style: preserve-3d;
+}
+
+/* 圆角按卡面的 30 / 600、30 / 840 折成百分比，缩放到多大都和 canvas 里的圆角对得上 */
+.holo-card__face {
+  position: absolute;
+  inset: 0;
+  border-radius: 5% / 3.57%;
+  overflow: hidden;
+  backface-visibility: hidden;
+  box-shadow:
+    0 30px 60px -20px rgba(0, 0, 0, 0.75),
+    0 0 calc(var(--foil) * 46px) -6px var(--holo-accent, transparent);
+}
+
+.holo-card__face > canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.holo-card__layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* 彩虹斜带：鼠标一动，整幅渐变跟着滑 */
+.holo-card__foil {
+  background-image: repeating-linear-gradient(
+    115deg,
+    #ff7a7a 0%,
+    #ffe066 7%,
+    #8dff8a 14%,
+    #7df3ff 21%,
+    #8a9bff 28%,
+    #e38aff 35%,
+    #ff7a7a 42%
+  );
+  background-size: 260% 260%;
+  background-position: calc(var(--px) * 1%) calc(var(--py) * 1%);
+  mix-blend-mode: color-dodge;
+  opacity: calc(var(--foil) * 0.19);
+  filter: brightness(0.8) contrast(1.3);
+}
+
+/* 星点：只在高光扫到的那一条里亮，倾斜时一片一片地闪 */
+.holo-card__spark {
+  background-size: 110px 110px;
+  mix-blend-mode: color-dodge;
+  opacity: calc((var(--foil) - 0.5) * 1.3);
+  -webkit-mask-image: linear-gradient(
+    115deg,
+    transparent calc(var(--px) * 1% - 30%),
+    #000 calc(var(--px) * 1%),
+    transparent calc(var(--px) * 1% + 30%)
+  );
+  mask-image: linear-gradient(
+    115deg,
+    transparent calc(var(--px) * 1% - 30%),
+    #000 calc(var(--px) * 1%),
+    transparent calc(var(--px) * 1% + 30%)
+  );
+}
+
+/* 高光：一团跟着鼠标走的亮斑，离得远的角落压暗一点，才有「反光」的感觉 */
+.holo-card__glare {
+  background: radial-gradient(
+    farthest-corner circle at calc(var(--px) * 1%) calc(var(--py) * 1%),
+    rgba(255, 255, 255, 0.8) 0%,
+    rgba(255, 255, 255, 0.3) 22%,
+    rgba(0, 0, 0, 0.45) 95%
+  );
+  mix-blend-mode: overlay;
+  opacity: calc(0.28 + var(--foil) * 0.3);
+}
+
+/* 卡背：翻面入场的前半圈看到的是它 */
+.holo-card__back {
+  transform: rotateY(180deg);
+  display: grid;
+  place-items: center;
+  background:
+    repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.035) 0 2px, transparent 2px 14px),
+    repeating-linear-gradient(-45deg, rgba(255, 255, 255, 0.035) 0 2px, transparent 2px 14px),
+    radial-gradient(circle at 50% 42%, #4a3422, #1a120c 70%);
+  border: 4px solid var(--holo-accent, #f5a04a);
+}
+
+.holo-card__seal {
+  display: grid;
+  place-items: center;
+  width: 42%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  border: 2px solid var(--holo-accent, #f5a04a);
+  outline: 1px solid color-mix(in srgb, var(--holo-accent, #f5a04a) 45%, transparent);
+  outline-offset: 7px;
+  color: var(--holo-accent, #f5a04a);
+  font-size: clamp(40px, 9vh, 76px);
+  font-weight: 800;
+}
+
+@keyframes holo-flip-in {
+  0% {
+    opacity: 0;
+    transform: translateY(40px) rotateY(-180deg) scale(0.72);
+  }
+  25% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* 入场时扫过的一道白光（翻到正面那一下） */
+.holo-card__flash {
+  background: linear-gradient(115deg, transparent 30%, rgba(255, 255, 255, 0.85) 50%, transparent 70%);
+  background-size: 300% 100%;
+  mix-blend-mode: overlay;
+  animation: holo-flash 0.9s 0.55s ease-out both;
+}
+
+@keyframes holo-flash {
+  from {
+    background-position: 120% 0;
+    opacity: 1;
+  }
+  to {
+    background-position: -60% 0;
+    opacity: 0;
+  }
+}
+
+/* SR / SSR 身后的放射光：慢慢转 */
+.holo-rays {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 150%;
+  aspect-ratio: 1;
+  translate: -50% -50%;
+  pointer-events: none;
+  background: repeating-conic-gradient(
+    from 0deg,
+    color-mix(in srgb, var(--holo-accent, #f5a04a) 55%, transparent) 0deg 7deg,
+    transparent 7deg 20deg
+  );
+  -webkit-mask-image: radial-gradient(circle, #000 12%, transparent 62%);
+  mask-image: radial-gradient(circle, #000 12%, transparent 62%);
+  opacity: calc((var(--foil) - 0.5) * 0.5);
+  animation: holo-spin 40s linear infinite;
+}
+
+@keyframes holo-spin {
+  to {
+    rotate: 360deg;
+  }
+}
+
+/* 设置里关了「界面动效」：不翻面、不闪、不转（卡片也不自己晃，只跟鼠标，见 ShareCardDialog） */
+html[data-motion="off"] .holo-card,
+html[data-motion="off"] .holo-rays {
+  animation: none;
+}
+html[data-motion="off"] .holo-card__flash {
+  display: none;
+}

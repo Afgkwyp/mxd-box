@@ -1,0 +1,42 @@
+[package]
+name = "mxd_box"
+version = "0.1.9"
+description = "枫之助 · 冒险岛怀旧服小助手"
+authors = ["mxd-box"]
+license = "MIT"
+edition = "2021"
+rust-version = "1.77.2"
+
+[lib]
+name = "mxd_box_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.6.3", features = [] }
+
+[dependencies]
+serde_json = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+log = "0.4"
+tauri = { version = "2.11.6", features = ["tray-icon"] }
+tauri-plugin-log = "2"
+tauri-plugin-single-instance = "2"
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-notification = "2"
+sysinfo = "0.33"
+rusqlite = { version = "0.33", features = ["bundled"] }
+parking_lot = "0.12"
+reqwest = { version = "0.12", features = ["json", "cookies", "gzip", "brotli", "deflate", "zstd"] }
+tokio = { version = "1", features = ["full"] }
+scraper = "0.22"
+chrono = { version = "0.4", features = ["serde"] }
+urlencoding = "2.1"
+# 小结卡片：前端 canvas 画好 PNG 传 base64 过来，这里解回字节落盘
+base64 = "0.22"
+# 校准窗要把 BGRA 抓屏压成 PNG 再过 IPC；纯 Rust 编码器不额外带 DLL，保住单文件发布。
+png = "0.17"
+# 地图名识别：跑 PP-OCR 的识别模型（模型和字典在 assets/，打包进 exe）。
+# 用 `tract` 而不是 onnxruntime：它是**纯 Rust**，不需要随包带 onnxruntime.dll，
+# 也就保住了「单文件、拷过去就能用」这条底线。代价是慢一点 ——
+# 但我们只在换地图时跑一次（一小块 48×W 的图），几十毫秒完全够。
+tract-onnx = "0.23"
