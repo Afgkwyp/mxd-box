@@ -252,6 +252,12 @@ const MANUAL_MISS_LIMIT: u32 = 3;
 
 /// HUD 锚点连续这么多帧「标签对不上」就丢掉重找（窗口改了 UI 缩放 / 挪了位置）。
 const HUD_MISS_LIMIT: u32 = 3;
+/// HUD 锚点处「标签看得到、数字却读不成」连续这么多帧，也丢掉重找。
+///
+/// 重新定位之后还是读不成（真读不出来的画面）就把这个数翻倍、最多到
+/// [`HUD_UNREAD_LIMIT_MAX`]：越隔越久再试，不把整幅扫描和日志刷成心跳。
+const HUD_UNREAD_LIMIT: u32 = 5;
+const HUD_UNREAD_LIMIT_MAX: u32 = 80;
 
 /// 读数和经验条填充比例最多差多少（0~1）还算一致。
 ///
@@ -353,6 +359,10 @@ pub struct ExpReader {
     hud_layout_miss: Option<std::time::Instant>,
     /// 用缓存锚点连续失败的次数：够多就丢掉重找。
     hud_misses: u32,
+    /// 用缓存锚点「标签看得到、数字却读不成」的连续帧数，以及这一轮的上限
+    /// （见 [`ExpReader::note_hud_unread`]）。
+    hud_unread: u32,
+    hud_unread_limit: u32,
     /// 「读不到」的诊断只写一次日志 —— 每帧都写会把日志冲成一片
     logged_blind: bool,
     /// 上一次失败的 code。**只在 code 变了时才写一行日志**：采样 1~2 秒一次，
@@ -411,6 +421,8 @@ impl ExpReader {
             hud_layout: None,
             hud_layout_miss: None,
             hud_misses: 0,
+            hud_unread: 0,
+            hud_unread_limit: HUD_UNREAD_LIMIT,
             logged_blind: false,
             last_failure: None,
             logged_screen_rescue: false,
@@ -807,6 +819,26 @@ impl ExpReader {
         layout.map_name.map(|(x, y, w, h)| PixelRect { x, y, w, h })
     }
 
+    /// 锚点处标签看得到、这一帧却没读成（数字认不出 / 和经验条、经验表对不上）。
+    ///
+    /// 连续够多帧就丢掉锚点重新定位。换角色之后「只有重开软件才好」就是卡在这儿：
+    /// 进角色那一下 HUD 还在过场里，那时定下的锚点会差一两个像素 / 一点缩放；
+    /// 标签那道检查放得宽（半径 2、误差 50）照样过，数字却永远对不上 ——
+    /// 而以前只有「标签看不到」才会丢锚点，这种锚点就一直用到退出。
+    fn note_hud_unread(&mut self) {
+        self.hud_unread += 1;
+        if self.hud_unread < self.hud_unread_limit {
+            return;
+        }
+        log::info!(
+            "HUD 锚点处连续 {} 帧看得到 EXP 标签却读不成，丢掉重新定位",
+            self.hud_unread
+        );
+        self.hud_layout = None;
+        self.hud_unread = 0;
+        self.hud_unread_limit = (self.hud_unread_limit * 2).min(HUD_UNREAD_LIMIT_MAX);
+    }
+
     /// HUD 路径（主路径）：锚点定位（按客户区尺寸缓存）→ 只抓经验那一小条 →
     /// 确认标签还在 → 按锚点量出的缩放还原像素认字 → 和经验条比例互相印证。
     ///
@@ -864,6 +896,7 @@ impl ExpReader {
         let bar = hud::exp_bar_ratio(&pixels, (sx, sy), layout.exp_bar);
         let Some(read) = hudread::read_exp(&pixels, (sx, sy), &layout, &self.font) else {
             self.save_hud_sample(&pixels, (sx, sy), (client_w, client_h), &layout, "读不出");
+            self.note_hud_unread();
             return HudAttempt::Unreadable(format!(
                 "，HUD 已定位（{} · 缩放 {:.3}×{:.3}），经验条 {}，但数字认不出（原生字形 / 还原像素 / OCR 都试过）",
                 layout.anchor.skin.label(),
@@ -884,6 +917,7 @@ impl ExpReader {
                     bar.ratio * 100.0,
                     gap * 100.0
                 );
+                self.note_hud_unread();
                 return HudAttempt::Rejected(self.note_failure(
                     ReadFailure::Contradiction {
                         raw: read.reading.raw.clone(),
@@ -927,8 +961,15 @@ impl ExpReader {
             origin,
             HitSource::Hud,
         ) {
-            Ok(sample) => HudAttempt::Read(sample),
-            Err(failure) => HudAttempt::Rejected(failure),
+            Ok(sample) => {
+                self.hud_unread = 0;
+                self.hud_unread_limit = HUD_UNREAD_LIMIT;
+                HudAttempt::Read(sample)
+            }
+            Err(failure) => {
+                self.note_hud_unread();
+                HudAttempt::Rejected(failure)
+            }
         }
     }
 
@@ -1244,15 +1285,16 @@ impl ExpReader {
             mode.label(),
             capture::is_foreground(hwnd)
         );
+        // 最小化要先判：最小化的窗口客户区就是 0×0，后判会被报成「抓不到画面」
+        if capture::is_minimized(hwnd) {
+            return Err(self.note_failure(ReadFailure::Minimized, &scene));
+        }
+
         if client_w <= 0 || client_h <= 0 {
             return Err(self.note_failure(
                 ReadFailure::CaptureFailed("拿不到客户区尺寸".to_string()),
                 &scene,
             ));
-        }
-
-        if capture::is_minimized(hwnd) {
-            return Err(self.note_failure(ReadFailure::Minimized, &scene));
         }
 
         self.ensure_region_loaded();
@@ -2280,6 +2322,23 @@ mod tests {
         assert_eq!(parse_level_ocr("Lv.0"), None);
         assert_eq!(parse_level_ocr("Lv."), None);
         assert_eq!(parse_level_ocr("经验"), None);
+    }
+
+    /// 标签看得到却一直读不成：到数就要求重新定位，而且越试越稀。
+    #[test]
+    fn an_anchor_that_never_reads_is_given_up_with_backoff() {
+        let mut reader = ExpReader::new(Font::builtin());
+        for _ in 0..HUD_UNREAD_LIMIT - 1 {
+            reader.note_hud_unread();
+        }
+        assert_eq!(reader.hud_unread, HUD_UNREAD_LIMIT - 1);
+        reader.note_hud_unread();
+        assert_eq!(reader.hud_unread, 0);
+        assert_eq!(reader.hud_unread_limit, HUD_UNREAD_LIMIT * 2);
+        for _ in 0..1000 {
+            reader.note_hud_unread();
+        }
+        assert_eq!(reader.hud_unread_limit, HUD_UNREAD_LIMIT_MAX);
     }
 
     /// 三种 kind 都能被校准表接受（命令层用同一份判据）。

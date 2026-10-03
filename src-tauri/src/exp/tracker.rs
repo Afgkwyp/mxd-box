@@ -1230,7 +1230,14 @@ fn apply_read(guard: &mut Inner, result: Result<Sample, ReadFailure>, now: Insta
     guard.last_sample = Some(sample.clone());
 
     if !running {
-        // 没在统计：只更新「当前值」显示，不推进任何计时
+        // 没在统计：只更新「当前值」显示，不推进任何计时。
+        // 「未开始」时等级跟着读数走 —— 不然换了角色，界面上还挂着上一段统计
+        // 留下的那个角色的等级（暂停中不动：那是账本的基准）。
+        if guard.phase == Phase::Idle {
+            if let Some(level) = sample.level.or(sample.screen_level) {
+                guard.last_effective = Some((sample.exp, level));
+            }
+        }
         return;
     }
 
@@ -1400,8 +1407,12 @@ fn apply_read(guard: &mut Inner, result: Result<Sample, ReadFailure>, now: Insta
         table::Advance::Shifted { too_big } => {
             // 这一帧自己自洽，只是和上一帧接不上。两种情况都**不计增量、
             // 把基准挪到当下** —— 不挪的话下一帧还是接不上，统计就永久停摆了。
+            // 等级和重立基准同一个口径（经验表 → 等级框 → 顺着上一帧往上找）：
+            // 换到一个经验很少的小号时经验表定不出等级，只往上找会把旧角色的
+            // 等级留在基准里，之后每一帧都接不上、每一帧都判「换角色」。
             let level = sample
                 .level
+                .or(sample.screen_level)
                 .unwrap_or_else(|| table::level_holding(prev_level, sample.exp).unwrap_or(prev_level));
             guard.baseline = Some((now, sample.exp, level));
             guard.last_effective = Some((sample.exp, level));
@@ -2026,6 +2037,38 @@ mod tests {
         blank.screen_level = None;
         assert_eq!(start_level(&blank, Some(48)), Some(48));
         assert_eq!(start_level(&blank, None), None);
+    }
+
+    /// 统计中换到小号、经验表定不出等级：基准的等级要用等级框的，
+    /// 不能把旧角色的等级留在账本里（那样之后每一帧都接不上）。
+    #[test]
+    fn a_character_switch_takes_the_level_from_the_level_box() {
+        let mut state = inner(Phase::Running);
+        let mut alt = sample(700, 12);
+        alt.level = None;
+        alt.screen_level = Some(12);
+        apply_read(&mut state, Ok(alt), Instant::now(), 1.0);
+        assert_eq!(state.baseline.map(|(_, exp, level)| (exp, level)), Some((700, 12)));
+        assert_eq!(gained(&state), 0);
+
+        // 下一帧就能正常接上
+        apply_read(&mut state, Ok(sample(760, 12)), Instant::now(), 1.0);
+        assert_eq!(gained(&state), 60);
+    }
+
+    /// 没在统计时换角色：显示的等级跟着读数走，不挂着上一段留下的那个。
+    #[test]
+    fn an_idle_read_refreshes_the_shown_level() {
+        let mut state = inner(Phase::Idle);
+        state.session = None;
+        state.baseline = None;
+        apply_read(&mut state, Ok(sample(9_000, 20)), Instant::now(), 3.0);
+        assert_eq!(state.last_effective, Some((9_000, 20)));
+
+        // 暂停中不动：那是账本的基准
+        let mut paused = inner(Phase::Paused);
+        apply_read(&mut paused, Ok(sample(9_000, 20)), Instant::now(), 3.0);
+        assert_eq!(paused.last_effective, Some((427_096, 55)));
     }
 
     /// 地图名近似只在**等长、差一个字、唯一候选**时采纳。
