@@ -16,11 +16,6 @@
 
 https://github.com/user-attachments/assets/63e5e7d6-94d8-436e-8455-dcc61be57646
 
-
-[![枫之助介绍视频（点击播放，约 2 分钟）](docs/intro-poster.jpg)](docs/intro.mp4)
-
-点上面的图播放（约 2 分钟，720p）。
-
 ## 下载
 
 - 网盘：<https://pan.quark.cn/s/a9632b3efa8e>（软件内「检查更新」也读这里）
