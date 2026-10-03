@@ -17,6 +17,9 @@ export const MXDC_SERVER_MONITOR = "https://mxdc.dvg.cn/tools/server-monitor/";
 /** Apache-2.0 许可全文（随包分发的 PP-OCR 模型用的是这个许可）。 */
 export const APACHE_LICENSE = "https://www.apache.org/licenses/LICENSE-2.0";
 
+/** 源码仓库（MIT 许可）。 */
+export const GITHUB_REPO = "https://github.com/Afgkwyp/mxd-box";
+
 /** 作者建的玩家交流群。点一下直接用系统浏览器拉起 QQ 加群。 */
 export const QQ_GROUP_NUMBER = "1124493167";
 export const QQ_GROUP_INVITE = "https://qm.qq.com/q/BghxNhhkas";

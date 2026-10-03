@@ -3,13 +3,13 @@ import { invoke } from "@tauri-apps/api/core";
 import { UpdateNotes } from "../components/UpdateNotes";
 import { TipDialog } from "../components/TipDialog";
 import { Panel } from "../components/ui/kit";
-import { APACHE_LICENSE, MXDC_HOME, QQ_GROUP_INVITE, QQ_GROUP_NUMBER } from "../lib/links";
+import { APACHE_LICENSE, GITHUB_REPO, MXDC_HOME, QQ_GROUP_INVITE, QQ_GROUP_NUMBER } from "../lib/links";
 import type { BuildInfo } from "../types";
 
 const open = (url: string) => invoke("open_external_url", { url }).catch(() => {});
 
 /**
- * 关于与更新说明：数据来源、交流群、赞赏码、每一版更新了什么。
+ * 关于与更新说明：开源地址、数据来源、交流群、赞赏码、每一版更新了什么。
  * 原来是设置页里的第三个页签，现在单独成页（侧栏「设置」下面）。
  */
 export const AboutPage: React.FC<{ build: BuildInfo | null }> = ({ build }) => {
@@ -18,7 +18,19 @@ export const AboutPage: React.FC<{ build: BuildInfo | null }> = ({ build }) => {
   return (
     <div className="space-y-4">
       <Panel title="枫之助 · 冒险岛怀旧服小助手" meta={build ? <span className="font-mono">v{build.version}</span> : undefined}>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-xs">
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 text-xs">
+          <button
+            type="button"
+            onClick={() => open(GITHUB_REPO)}
+            className="text-left rounded-xl bg-slate-800/70 border border-white/5 p-3 hover:border-emerald-500/40 cursor-pointer"
+          >
+            <div className="font-bold text-slate-100 mb-0.5">
+              已开源 <span className="font-mono text-emerald-400">MIT</span>
+            </div>
+            <div className="text-slate-400 break-all">
+              源码在 GitHub：github.com/Afgkwyp/mxd-box（点击用系统浏览器打开，欢迎提 Issue）
+            </div>
+          </button>
           <button
             type="button"
             onClick={() => open(MXDC_HOME)}
