@@ -14,6 +14,7 @@
 ## 下载
 
 - 网盘：<https://pan.quark.cn/s/a9632b3efa8e>（软件内「检查更新」也读这里）
+- QQ 群：1124493167（[点击加入](https://qm.qq.com/q/BghxNhhkas)），反馈问题、领最新版都可以来
 - 或自己编译，见下。
 
 ## 它会做什么、不会做什么
@@ -34,10 +35,6 @@ pnpm tauri build    # 打包，产物在 src-tauri/target/release/mxd_box.exe
 ```
 
 实现细节、踩过的坑和开发约定都在 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)。
-
-## 已知问题
-
-- 4K 屏幕上的经验识别还没有足够的真机样本验证，**属于实验性支持**。如果你是 4K 用户，欢迎在 Issues 里附上游戏底部 HUD 的原始截图（PNG，别压缩）。
 
 ## 致谢与署名
 
