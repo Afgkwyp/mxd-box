@@ -19,12 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
----
-Scope / 适用范围：
-The MIT license above covers the original code of this project. It does NOT
-cover the third-party materials listed in THIRD_PARTY_NOTICES.md (in particular
-the HUD template data derived from 枫记 and the PP-OCR model), which remain
-under their own owners' terms.
-上面的 MIT 许可只覆盖本项目作者自己写的代码；THIRD_PARTY_NOTICES.md 里列出的第三方
-材料（尤其是源自「枫记」的 HUD 模板数据、PP-OCR 模型）仍归各自权利人，条款以他们的为准。
