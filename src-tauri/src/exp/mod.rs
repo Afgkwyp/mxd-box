@@ -41,6 +41,7 @@
 //! 空隙多大都无所谓，而且任何一位对不上就整帧作废，绝不给出半个数字。
 
 pub mod capture;
+pub mod character;
 pub mod font;
 pub mod hud;
 pub mod hudread;

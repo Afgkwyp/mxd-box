@@ -703,20 +703,63 @@ pub struct ExpHistoryPayload {
     pub totals: ExpTotals,
 }
 
+/// `character` 给了就只看这个角色的（列表和汇总都是）。
 #[tauri::command]
 pub fn get_exp_history(
     limit: Option<u32>,
+    character: Option<i64>,
     state: State<'_, AppState>,
 ) -> Result<ExpHistoryPayload, String> {
     let rows = state
         .db
-        .exp_history(limit.unwrap_or(20).clamp(1, 200))
+        .exp_history(limit.unwrap_or(20).clamp(1, 200), character)
         .map_err(|err| format!("读经验历史失败：{}", err))?;
     let totals = state
         .db
-        .exp_totals()
+        .exp_totals(character)
         .map_err(|err| format!("读经验汇总失败：{}", err))?;
     Ok(ExpHistoryPayload { rows, totals })
+}
+
+/// 角色列表（最近玩的在前）：名字、职业、等级、经验进度，和各自名下历史的汇总。
+#[tauri::command]
+pub fn list_exp_characters(
+    state: State<'_, AppState>,
+) -> Result<Vec<crate::db::CharacterRow>, String> {
+    state
+        .db
+        .list_characters()
+        .map_err(|err| format!("读角色列表失败：{}", err))
+}
+
+/// 给角色改名（名字是 OCR 读的，认错了字时自己改）。
+#[tauri::command]
+pub fn rename_exp_character(
+    id: i64,
+    name: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let name: String = name.trim().chars().take(24).collect();
+    if name.is_empty() {
+        return Err("名字不能是空的".to_string());
+    }
+    state
+        .db
+        .rename_character(id, &name)
+        .map_err(|err| format!("改名失败：{}", err))?;
+    state.exp_tracker.forget_character();
+    Ok(())
+}
+
+/// 从列表里拿掉一个角色。它名下的历史留着（变成没有归属的记录）。
+#[tauri::command]
+pub fn delete_exp_character(id: i64, state: State<'_, AppState>) -> Result<(), String> {
+    state
+        .db
+        .delete_character(id)
+        .map_err(|err| format!("删除角色失败：{}", err))?;
+    state.exp_tracker.forget_character();
+    Ok(())
 }
 
 #[tauri::command]
@@ -728,10 +771,13 @@ pub fn exp_report(
 }
 
 #[tauri::command]
-pub fn get_exp_curve(state: State<'_, AppState>) -> Result<Vec<ExpCurvePoint>, String> {
+pub fn get_exp_curve(
+    character: Option<i64>,
+    state: State<'_, AppState>,
+) -> Result<Vec<ExpCurvePoint>, String> {
     state
         .db
-        .exp_curve(2_000)
+        .exp_curve(2_000, character)
         .map_err(|err| format!("读经验曲线失败：{}", err))
 }
 

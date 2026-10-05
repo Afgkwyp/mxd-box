@@ -31,6 +31,7 @@ import {
 } from "recharts";
 import { HotkeyInput } from "./HotkeyInput";
 import { ExpGoalRow } from "./ExpGoalRow";
+import { ExpCharacters } from "./ExpCharacters";
 import { ConfirmDialog, InlineNotice, type Notice } from "./Notice";
 import {
   formatClock,
@@ -44,6 +45,7 @@ import { ShareCardDialog } from "./ShareCardDialog";
 import type { ExpCardData } from "../lib/shareCard";
 import type {
   AppSettings,
+  ExpCharacter,
   ExpCurvePoint,
   ExpHistoryPayload,
   ExpHistoryRow,
@@ -114,20 +116,40 @@ ull = 他没动过，这时用程序认出来的那个
   /** 已经认过的地图名（库里存的，见 exp::map）：输入框旁边的快捷按钮用 */
   const [knownMaps, setKnownMaps] = useState<string[]>([]);
 
+  /** 角色列表，和「历史只看谁的」（null = 全部角色） */
+  const [characters, setCharacters] = useState<ExpCharacter[]>([]);
+  const [viewCharacter, setViewCharacter] = useState<number | null>(null);
+  const [pendingCharacter, setPendingCharacter] = useState<ExpCharacter | null>(null);
+
+  const refreshCharacters = useCallback(() => {
+    invoke<ExpCharacter[]>("list_exp_characters")
+      .then(setCharacters)
+      .catch(() => {});
+  }, []);
+
   const refreshHistory = useCallback(() => {
-    invoke<ExpHistoryPayload>("get_exp_history", { limit: 30 })
+    invoke<ExpHistoryPayload>("get_exp_history", { limit: 30, character: viewCharacter })
       .then((payload) => {
         setHistory(payload.rows);
         setTotals(payload.totals);
       })
       .catch(() => {});
-    invoke<ExpCurvePoint[]>("get_exp_curve")
+    invoke<ExpCurvePoint[]>("get_exp_curve", { character: viewCharacter })
       .then(setCurve)
       .catch(() => {});
     invoke<string[]>("known_exp_maps")
       .then(setKnownMaps)
       .catch(() => {});
-  }, []);
+    refreshCharacters();
+  }, [viewCharacter, refreshCharacters]);
+
+  // 角色的等级和进度是后台边读边记的：登录的角色变了立刻刷一次，平时半分钟刷一次
+  const currentCharacter = status?.character?.id ?? null;
+  useEffect(() => {
+    refreshCharacters();
+    const timer = window.setInterval(refreshCharacters, 30_000);
+    return () => window.clearInterval(timer);
+  }, [currentCharacter, refreshCharacters]);
 
   useEffect(() => {
     refreshStatus();
@@ -289,6 +311,7 @@ ull = 他没动过，这时用程序认出来的那个
   }, []);
 
   const expHotkeyStatus = hotkeyStatuses.find((item) => item.action === "exp_toggle");
+  const viewedCharacter = characters.find((item) => item.id === viewCharacter) ?? null;
   const phase = status?.phase ?? "idle";
   const reading = status?.read_state === "ok";
   const session = status?.session ?? null;
@@ -693,12 +716,38 @@ ull = 他没动过，这时用程序认出来的那个
 
       </div>
 
+      {/* 角色：谁在线、各自练到哪了；点一个，下面的历史只看它的 */}
+      <ExpCharacters
+        characters={characters}
+        currentId={currentCharacter}
+        selectedId={viewCharacter}
+        busy={busy}
+        onSelect={setViewCharacter}
+        onRename={(id, name) =>
+          run(async () => {
+            await invoke("rename_exp_character", { id, name });
+            refreshHistory();
+          })
+        }
+        onDelete={setPendingCharacter}
+      />
+
       {/* 历史 */}
       <Panel className="col-span-12 space-y-4">
         <div className="flex items-center justify-between">
-          <h3 className="text-sm font-bold text-slate-100 flex items-center gap-2">
+          <h3 className="text-sm font-bold text-slate-100 flex items-center gap-2 min-w-0">
             <TrendingUp className="w-4 h-4 text-amber-400" />
             历史统计
+            {viewedCharacter && (
+              <button
+                type="button"
+                onClick={() => setViewCharacter(null)}
+                title="回到全部角色的历史"
+                className="text-[11px] font-normal text-amber-200 bg-amber-500/10 border border-amber-500/30 rounded px-1.5 py-0.5 truncate cursor-pointer hover:bg-amber-500/20"
+              >
+                只看 {viewedCharacter.name} ×
+              </button>
+            )}
           </h3>
           <button
             type="button"
@@ -770,6 +819,15 @@ ull = 他没动过，这时用程序认出来的那个
                   {formatShortDate(row.started_unix)}
                 </span>
                 <span>{formatDuration(row.active_secs)}</span>
+                {/* 谁练的：看全部角色时才标（只看一个角色时每行都一样，不用重复） */}
+                {viewCharacter == null && row.character_name && (
+                  <span
+                    title={`这一段是 ${row.character_name} 练的`}
+                    className="text-[10px] text-amber-200/90 bg-amber-500/10 border border-amber-500/20 rounded px-1.5 py-0.5"
+                  >
+                    {row.character_name}
+                  </span>
+                )}
                 {/* 在哪练的：填过的才有，没填就不占位置 */}
                 {row.map_name && (
                   <span
@@ -827,7 +885,7 @@ ull = 他没动过，这时用程序认出来的那个
           </ul>
         ) : (
           <p className="text-xs text-slate-500">
-            还没有历史记录
+            {viewedCharacter ? `${viewedCharacter.name} 还没有计入历史的记录` : "还没有历史记录"}
           </p>
         )}
       </Panel>
@@ -870,6 +928,34 @@ ull = 他没动过，这时用程序认出来的那个
           });
         }}
         onCancel={() => setPendingDelete(null)}
+      />
+
+      <ConfirmDialog
+        open={pendingCharacter != null}
+        title="从列表里拿掉这个角色？"
+        body={
+          pendingCharacter && (
+            <>
+              {pendingCharacter.name}
+              {pendingCharacter.job ? `（${pendingCharacter.job}）` : ""}。
+              <br />
+              它名下的 {pendingCharacter.sessions} 段历史会留着，只是不再标是谁练的；
+              下次登录这个角色，程序会重新把它记进列表。
+            </>
+          )
+        }
+        confirmLabel="拿掉"
+        onConfirm={() => {
+          const character = pendingCharacter;
+          setPendingCharacter(null);
+          if (!character) return;
+          run(async () => {
+            await invoke("delete_exp_character", { id: character.id });
+            if (viewCharacter === character.id) setViewCharacter(null);
+            refreshHistory();
+          });
+        }}
+        onCancel={() => setPendingCharacter(null)}
       />
 
       <ConfirmDialog

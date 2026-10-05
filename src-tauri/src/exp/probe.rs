@@ -533,6 +533,41 @@ fn save_png(path: &std::path::Path, pixels: &font::Pixels<'_>) {
         .expect("写 PNG 失败");
 }
 
+/// 对着正在运行的游戏走一遍「读经验 → 认角色」：客户区多大、HUD 是哪一版、
+/// 名字和职业读出来什么。换了分辨率想确认角色还认不认得出，跑它。
+///
+/// ```text
+/// cargo test --lib -- --ignored probe_character --nocapture
+/// ```
+#[test]
+#[ignore]
+fn probe_character() {
+    capture::ensure_dpi_aware();
+    // `PROBE_DB` 指到一份库的**拷贝**时带上里面的手动校准，走和产品一样的读数路径
+    let store = std::env::var_os("PROBE_DB").map(|path| {
+        let db = crate::db::Database::new(path.into()).expect("打不开 PROBE_DB");
+        std::sync::Arc::new(db) as std::sync::Arc<dyn crate::exp::region::RegionStore>
+    });
+    let mut reader = crate::exp::reader::ExpReader::with_store(font::Font::builtin(), store);
+    let hwnd = reader.window().expect("没找到游戏窗口");
+    let (w, h) = capture::client_size(hwnd).expect("拿不到客户区");
+    println!("客户区 {w}×{h} · 形态 {:?}", capture::screen_mode(hwnd));
+    match reader.read() {
+        Ok(sample) => println!("经验 {}（框 {:?}）", sample.raw, sample.region.map(|hit| hit.source)),
+        Err(failure) => println!("经验没读到：{}", failure.message()),
+    }
+    // 手动校准过的人读数不走 HUD 那条路，锚点得由这里自己找出来
+    let Some((name_rect, job_rect)) = reader.identity_rects(w, h) else {
+        println!("没有名字 / 职业的位置（HUD 没定位到，或者是紧凑版状态栏）");
+        return;
+    };
+    println!("名字框 {name_rect:?} · 职业框 {job_rect:?}");
+    let mut who = crate::exp::character::CharacterReader::new();
+    // 新指纹要连续两次一致才采纳，所以看两眼
+    who.look(hwnd, name_rect, job_rect);
+    println!("认到 {:?}", who.look(hwnd, name_rect, job_rect));
+}
+
 /// 对着正在运行的游戏看「地图名那一行」：框在哪、多宽、两种喂法各读出什么。
 ///
 /// 用来查「地名里的数字读丢了」这类问题（`地铁二号线<第3地区>` 读成 `地铁二号线-第地区`）。

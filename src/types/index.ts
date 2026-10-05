@@ -532,6 +532,28 @@ export interface ExpStatus {
   notice: string | null;
   /** 练级目标的进度；没设目标时为 null */
   goal: ExpGoal | null;
+  /** 现在登录的角色；还没认出来时为 null */
+  character: { id: number; name: string; job: string } | null;
+}
+
+/**
+ * 角色列表里的一行（`list_exp_characters`）。
+ *
+ * 角色是程序从状态栏上认的：身份是名字那一块的像素指纹，`name` / `job` 是读出来给人看的。
+ */
+export interface ExpCharacter {
+  id: number;
+  name: string;
+  job: string;
+  /** 最近一次看到它时的等级 / 本级经验 / 百分比 */
+  level: number | null;
+  exp: number | null;
+  percent: number | null;
+  last_seen_unix: number;
+  /** 它名下计入历史的段数、累计有效时间、累计经验 */
+  sessions: number;
+  active_secs: number;
+  gained_exp: number;
 }
 
 /** 练级目标：到目标等级还差多少、按本段时速还要多久。 */
@@ -571,6 +593,9 @@ export interface ExpHistoryRow {
   idle_ratio: number;
   /** 这一段的练级地图（用户自己填的；没填是空串） */
   map_name: string;
+  /** 哪个角色练的；加角色之前的老记录、没认出角色的那几段是 null */
+  character_id: number | null;
+  character_name: string | null;
 }
 
 /** 历史汇总（「共 N 段 · 累计练了多久 · 一共多少经验」）。 */

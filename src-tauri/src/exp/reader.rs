@@ -811,6 +811,21 @@ impl ExpReader {
         Some(layout)
     }
 
+    /// 状态栏上（角色名, 职业）那两行字的位置。
+    ///
+    /// 锚点没有就现找一次（找不到有冷却，见 [`Self::ensure_hud_layout`]）。**不能只用
+    /// 已经缓存的**：经验行、地图名都手动校准过的人，读数走的是手动框，HUD 那条路
+    /// 一次都不会跑，锚点永远是空的 —— 角色列表就一直是空的（真机上就是这么漏的）。
+    pub fn identity_rects(
+        &mut self,
+        client_w: i32,
+        client_h: i32,
+    ) -> Option<((i32, i32, i32, i32), (i32, i32, i32, i32))> {
+        let hwnd = self.ensure_window()?.hwnd;
+        let layout = self.ensure_hud_layout(hwnd, client_w, client_h)?;
+        Some((layout.name_text?, layout.job_text?))
+    }
+
     /// 自动的地图名区域（HUD 锚点 → 小地图）。给 tracker 的识图流程用：
     /// 手动校准过就优先用那个（调用方负责），这里只是自动兜底。
     pub fn ensure_auto_map_rect(&mut self, client_w: i32, client_h: i32) -> Option<PixelRect> {

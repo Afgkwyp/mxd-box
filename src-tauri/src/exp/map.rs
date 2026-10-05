@@ -637,18 +637,43 @@ impl Default for MapReader {
 /// 这样既保留了不同地名独一无二的字形指纹，又彻底免疫了动态粒子每秒造成的像素微动。
 const FINGERPRINT_INK_THRESHOLD: u8 = 200;
 
-/// 像素指纹：先经高阈值二值化剔除天气粒子与半透明背景，再用 FNV-1a 计算前景字形哈希。
+/// 像素指纹：先经高阈值二值化剔除天气粒子与半透明背景，**裁到字的外接框**，
+/// 再用 FNV-1a 计算前景字形哈希。
+///
+/// 为什么要裁到外接框：抓的那一块是自动定位出来的，每次重新定位会漂几个像素
+/// （真机库里同一张 `猴子沼泽地3` 存了三个指纹，其中一个就是同一片像素、框在
+/// (44,44) 90×18 而不是 (48,43) 92×18）。按整块算，框一漂指纹就变，于是同一张图
+/// 被当成新图重认一遍 —— 「有时候对有时候错」的前一半就是这么来的。
+/// 只算字本身，框怎么漂都是同一个指纹。
 fn fingerprint(pixels: &Pixels<'_>) -> u64 {
+    fingerprint_above(pixels, FINGERPRINT_INK_THRESHOLD)
+}
+
+/// 同一个指纹算法，「多亮算字」由调用方定（状态栏上的角色名要按画面自己的亮度定，
+/// 见 `exp::character`）。
+pub(crate) fn fingerprint_above(pixels: &Pixels<'_>, threshold: u8) -> u64 {
+    let ink = |x: usize, y: usize| pixels.luma(x, y) >= threshold;
+    let rows: Vec<usize> = (0..pixels.height)
+        .filter(|y| (0..pixels.width).any(|x| ink(x, *y)))
+        .collect();
+    let columns: Vec<usize> = (0..pixels.width)
+        .filter(|x| (0..pixels.height).any(|y| ink(*x, y)))
+        .collect();
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
-    for y in 0..pixels.height {
-        for x in 0..pixels.width {
-            let ink = if pixels.luma(x, y) >= FINGERPRINT_INK_THRESHOLD {
-                1u64
-            } else {
-                0u64
-            };
-            hash ^= ink;
-            hash = hash.wrapping_mul(0x1000_0000_01b3);
+    let mut feed = |value: u64| {
+        hash ^= value;
+        hash = hash.wrapping_mul(0x1000_0000_01b3);
+    };
+    let (Some(&top), Some(&bottom), Some(&left), Some(&right)) =
+        (rows.first(), rows.last(), columns.first(), columns.last())
+    else {
+        return hash; // 一个亮点都没有
+    };
+    // 外接框的宽也喂进去：不然「3×4 的一块」和「4×3 的一块」摊平之后可能是同一串
+    feed((right - left + 1) as u64);
+    for y in top..=bottom {
+        for x in left..=right {
+            feed(ink(x, y) as u64);
         }
     }
     hash
@@ -720,6 +745,8 @@ fn restores_digits(cached: &str, fresh: &str) -> bool {
 
 /// 字和面板底色至少差这么多亮度才算「有字」（面板底是一片纯色，字是深色带浅色描边）。
 const TEXT_CONTRAST: i32 = 40;
+/// 同一块里各行的底色最多能比整块的底色偏这么多（渐变底）。再多就不是底了。
+const ROW_BACKGROUND_DRIFT: i32 = 64;
 /// 裁到有字的那一段时，左右各留几列底色（贴着字裁，模型会把头尾的笔画吃掉）。
 const TEXT_MARGIN: usize = 4;
 
@@ -734,7 +761,92 @@ const TEXT_MARGIN: usize = 4;
 /// 而字少、面板窄的 `第3军营` 是对的 —— 「有时候丢数字」就是这么来的。
 ///
 /// 所以这里先把框裁到有字的那一段，再走**不压扁**的那条识别路径。
+///
+/// # 为什么先换成白底黑字
+///
+/// 游戏里的字是白填充 + 深色阴影，压在浅蓝底上。11 像素高的 `3` 右下贴着一圈阴影，
+/// 原样喂给模型就在 `3` / `8` / 丢掉 / 认成别的字之间摇摆：真机 `猴子沼泽地3` 那一块，
+/// 把抓取框挪 ±3 像素共 147 种裁法，原样喂只有 46 种读对；换成白底黑字（阴影并进
+/// 底色）之后全对，带尖括号的 `地铁二号线<第3地区>` 也连括号一起读出来了。
+/// 见 [`to_ink`]。换不了（底本来就是白的）或读出来不像地图名时，退回原样喂。
 pub(crate) fn read_map_name_pixels(pixels: &Pixels<'_>) -> Option<ocr::Reading> {
+    read_white_text(pixels, ocr::looks_like_map_name)
+}
+
+/// 读一行「白字压在纯色底上」的游戏文字（地图名、状态栏上的职业和角色名都是这种）。
+///
+/// `accept` 是「白底黑字那一遍读出来的东西像不像样」：不像样才退回原样喂。
+pub(crate) fn read_white_text(
+    pixels: &Pixels<'_>,
+    accept: impl Fn(&ocr::Reading) -> bool,
+) -> Option<ocr::Reading> {
+    if let Some(ink) = to_ink(pixels) {
+        let ink = Pixels {
+            width: pixels.width,
+            height: pixels.height,
+            bgra: &ink,
+        };
+        if let Some(reading) = read_cropped(&ink).filter(|reading| accept(reading)) {
+            return Some(reading);
+        }
+    }
+    read_cropped(pixels)
+}
+
+/// 「白字 + 深色阴影 + 彩色底」→ 白底黑字（阴影并进底色）。
+///
+/// 每个像素取 `min(R, G, B)` 而不是亮度：白字三个通道都是 255，浅蓝底的红通道
+/// 低得多，比亮度拉得开（亮度下底是 178，离 255 只有 77）。比底更暗的（阴影、描边）
+/// 一律当底。底已经接近纯白时没有「比底更白的字」可分，返回 `None`。
+fn to_ink(pixels: &Pixels<'_>) -> Option<Vec<u8>> {
+    if pixels.width == 0 || pixels.height == 0 {
+        return None;
+    }
+    let floors: Vec<u8> = pixels
+        .bgra
+        .chunks_exact(4)
+        .map(|px| px[0].min(px[1]).min(px[2]))
+        .collect();
+    let mut histogram = [0u32; 256];
+    for value in &floors {
+        histogram[*value as usize] += 1;
+    }
+    let background = histogram
+        .iter()
+        .enumerate()
+        .max_by_key(|(_, count)| **count)
+        .map(|(value, _)| value as i32)?;
+    if 255 - background < TEXT_CONTRAST {
+        return None;
+    }
+    let mut ink = Vec::with_capacity(floors.len() * 4);
+    for row in floors.chunks_exact(pixels.width) {
+        // 底色按行取：状态栏的底是上亮下暗的渐变（同一块里 96 → 54），拿整块的
+        // 一个底色去减，亮的那几行整行都成了灰字。每行在整块底色附近找自己最多的
+        // 那个值；这一行找不到（整行都是字）就用整块的。
+        let mut counts = [0u32; 256];
+        for value in row {
+            if (*value as i32 - background).abs() <= ROW_BACKGROUND_DRIFT {
+                counts[*value as usize] += 1;
+            }
+        }
+        let base = counts
+            .iter()
+            .enumerate()
+            .filter(|(_, count)| **count > 0)
+            .max_by_key(|(_, count)| **count)
+            .map_or(background, |(value, _)| value as i32);
+        let span = (255 - base).max(1);
+        for value in row {
+            let shade = (255 - (*value as i32 - base).max(0) * 255 / span) as u8;
+            ink.extend_from_slice(&[shade, shade, shade, 255]);
+        }
+    }
+    Some(ink)
+}
+
+/// 裁到有字的那一段，不压扁地认一次，再收拾标点。
+fn read_cropped(pixels: &Pixels<'_>) -> Option<ocr::Reading> {
     let cropped = crop_to_text(pixels);
     let mut reading = match &cropped {
         Some((bgra, width)) => ocr::recognize_wide_line(&Pixels {
@@ -862,11 +974,64 @@ mod tests {
         let bgra = subway_strip();
         let pixels = Pixels { width: 208, height: 18, bgra: &bgra };
         let reading = read_map_name_pixels(&pixels).expect("应该读得出来");
-        assert_eq!(reading.text, "地铁二号线第3地区");
+        assert_eq!(reading.text, "地铁二号线<第3地区>");
         assert!(ocr::looks_like_map_name(&reading), "{reading:?}");
 
         let squeezed = ocr::recognize_line(&pixels).expect("旧读法也有结果");
         assert!(!squeezed.text.contains('3'), "旧读法居然读出了数字：{squeezed:?}");
+    }
+
+    /// 真机素材：1080p 下 `猴子沼泽地3` 那一块（92×18）。
+    fn swamp_strip() -> Vec<u8> {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/map_name_swamp3_92x18.bgra");
+        std::fs::read(&path).expect("读不到地图名素材")
+    }
+
+    /// 从一块 BGRA 里再抠一块（模拟定位框漂了几个像素）。
+    fn sub_rect(bgra: &[u8], width: usize, x: usize, y: usize, w: usize, h: usize) -> Vec<u8> {
+        let mut out = Vec::with_capacity(w * h * 4);
+        for row in y..y + h {
+            out.extend_from_slice(&bgra[(row * width + x) * 4..(row * width + x + w) * 4]);
+        }
+        out
+    }
+
+    /// **用户报的问题**：`猴子沼泽地3` 有时读成 `猴子沼泽地8` / `…BD` / `…意X`。
+    ///
+    /// 这份素材原样喂给模型读出来就是 `8`（钉住「为什么要先换成白底黑字」）；
+    /// 框漂一两个像素也必须读对。会真的跑几次识别模型。
+    #[test]
+    fn a_trailing_digit_survives_its_drop_shadow() {
+        let bgra = swamp_strip();
+        let pixels = Pixels { width: 92, height: 18, bgra: &bgra };
+        let raw = read_cropped(&pixels).expect("原样喂也有结果");
+        assert_ne!(raw.text, "猴子沼泽地3", "原样喂居然读对了，这条测试钉不住东西了");
+
+        for (x, y, w, h) in [(0, 0, 92, 18), (1, 0, 91, 18), (0, 1, 90, 17), (0, 0, 88, 17)] {
+            let shifted = sub_rect(&bgra, 92, x, y, w, h);
+            let reading = read_map_name_pixels(&Pixels { width: w, height: h, bgra: &shifted })
+                .expect("应该读得出来");
+            assert_eq!(reading.text, "猴子沼泽地3", "框 ({x},{y}) {w}×{h}");
+        }
+    }
+
+    /// 定位框漂了几个像素，同一张图的指纹不能变（不然每漂一次就当成新图重认一遍）。
+    #[test]
+    fn the_fingerprint_ignores_where_the_box_landed() {
+        let bgra = swamp_strip();
+        let whole = fingerprint(&Pixels { width: 92, height: 18, bgra: &bgra });
+        for (x, y, w, h) in [(1, 0, 91, 18), (0, 1, 90, 17), (2, 1, 88, 16)] {
+            let shifted = sub_rect(&bgra, 92, x, y, w, h);
+            assert_eq!(
+                fingerprint(&Pixels { width: w, height: h, bgra: &shifted }),
+                whole,
+                "框 ({x},{y}) {w}×{h}"
+            );
+        }
+        // 不同的地图还是不同的指纹
+        let subway = subway_strip();
+        assert_ne!(fingerprint(&Pixels { width: 208, height: 18, bgra: &subway }), whole);
     }
 
     /// 尖括号要么成对，要么不要。

@@ -59,6 +59,28 @@ pub struct ExpSessionRow {
     /// 「蘑菇神社」实际在蚂蚁洞的小结卡片，比没写地图更没用。填一次就能进历史
     /// 和小结卡片。
     pub map_name: String,
+    /// 这一段是哪个角色练的（`exp_characters.id`）。开始统计时还没认出角色、
+    /// 以及加这一列之前的老记录，都是 `None`。
+    pub character_id: Option<i64>,
+}
+
+/// 一个角色（`exp_characters` 一行 + 它名下历史的汇总）。
+///
+/// 身份是状态栏上名字那一块的像素指纹（见 `exp::character`），`name` / `job` 只是显示用。
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct CharacterRow {
+    pub id: i64,
+    pub name: String,
+    pub job: String,
+    /// 最近一次看到它时的等级 / 本级经验 / 百分比
+    pub level: Option<u32>,
+    pub exp: Option<u64>,
+    pub percent: Option<f64>,
+    pub last_seen_unix: i64,
+    /// 它名下计入历史的段数、累计有效时间、累计经验
+    pub sessions: u32,
+    pub active_secs: f64,
+    pub gained_exp: u64,
 }
 
 /// 会话里的一个采样点（每分钟一个）。
@@ -90,6 +112,9 @@ pub struct ExpHistoryRow {
     pub idle_ratio: f64,
     /// 这一段的练级地图（用户填的；没填是空串）
     pub map_name: String,
+    /// 哪个角色练的；老记录和没认出角色的是 `None`
+    pub character_id: Option<i64>,
+    pub character_name: Option<String>,
 }
 
 /// 历史汇总（页面上那句「共 N 段 · 累计练了多久 · 一共多少经验」）。
@@ -252,6 +277,9 @@ fn upsert_setting(conn: &Connection, key: &str, value: &str) -> Result<()> {
     Ok(())
 }
 
+/// 名字还没读出来的角色先叫这个（读出来了、或者用户自己改了，再换掉）。
+pub const UNNAMED_CHARACTER: &str = "未命名角色";
+
 pub struct Database {
     pub conn: Mutex<Connection>,
 }
@@ -366,6 +394,27 @@ impl Database {
                 updated_at INTEGER NOT NULL
             );
 
+            -- 角色：身份是状态栏上名字那一块的**像素指纹**（见 `exp::character`），
+            -- name / job 是 OCR 读出来给人看的。换分辨率指纹会变，所以一个角色可以
+            -- 挂多个指纹（exp_character_marks）。renamed = 用户自己改过名，之后
+            -- OCR 读出来的名字不再覆盖它。
+            CREATE TABLE IF NOT EXISTS exp_characters (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                job TEXT NOT NULL DEFAULT '',
+                level INTEGER,
+                exp INTEGER,
+                percent REAL,
+                renamed INTEGER NOT NULL DEFAULT 0,
+                first_seen INTEGER NOT NULL,
+                last_seen INTEGER NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS exp_character_marks (
+                fingerprint TEXT PRIMARY KEY,
+                character_id INTEGER NOT NULL
+            );
+
             -- 校准区域：**比例坐标**，一行一个 kind（见 `exp::region` 的模块文档）。
             --
             -- 为什么不是「按客户区尺寸 + DPI 分开存像素矩形」：那条路要求用户在每个
@@ -404,6 +453,7 @@ impl Database {
             ("exp_sessions", "idle_ratio", "REAL NOT NULL DEFAULT 0.0"),
             ("exp_sessions", "rejected_frames", "INTEGER NOT NULL DEFAULT 0"),
             ("exp_sessions", "map_name", "TEXT NOT NULL DEFAULT ''"),
+            ("exp_sessions", "character_id", "INTEGER"),
         ] {
             add_column_if_missing(&conn, table, column, decl)?;
         }
@@ -601,9 +651,9 @@ impl Database {
              (started_at, ended_at, active_secs, start_level, end_level,
               start_exp, end_exp, start_percent, end_percent, gained_exp,
               start_cum, end_cum, quality, quality_reason, coverage, idle_ratio,
-              rejected_frames, map_name)
+              rejected_frames, map_name, character_id)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14,
-                     ?15, ?16, ?17, ?18)",
+                     ?15, ?16, ?17, ?18, ?19)",
             params![
                 session.started_unix,
                 session.ended_unix,
@@ -623,6 +673,7 @@ impl Database {
                 session.idle_ratio,
                 session.rejected_frames,
                 session.map_name,
+                session.character_id,
             ],
         )?;
         let id = tx.last_insert_rowid();
@@ -651,16 +702,19 @@ impl Database {
         Ok(id)
     }
 
-    /// 历史列表（最近在前）。
-    pub fn exp_history(&self, limit: u32) -> Result<Vec<ExpHistoryRow>> {
+    /// 历史列表（最近在前）。`character` 给了就只要这个角色的。
+    pub fn exp_history(&self, limit: u32, character: Option<i64>) -> Result<Vec<ExpHistoryRow>> {
         let conn = self.conn.lock();
         let mut stmt = conn.prepare(
-            "SELECT id, started_at, ended_at, active_secs, start_level, end_level,
-                    start_percent, end_percent, gained_exp,
-                    quality, quality_reason, coverage, idle_ratio, map_name
-             FROM exp_sessions ORDER BY id DESC LIMIT ?1",
+            "SELECT s.id, s.started_at, s.ended_at, s.active_secs, s.start_level, s.end_level,
+                    s.start_percent, s.end_percent, s.gained_exp,
+                    s.quality, s.quality_reason, s.coverage, s.idle_ratio, s.map_name,
+                    s.character_id, c.name
+             FROM exp_sessions s LEFT JOIN exp_characters c ON c.id = s.character_id
+             WHERE ?2 IS NULL OR s.character_id = ?2
+             ORDER BY s.id DESC LIMIT ?1",
         )?;
-        let rows = stmt.query_map(params![limit], |row| {
+        let rows = stmt.query_map(params![limit, character], |row| {
             Ok(ExpHistoryRow {
                 id: row.get(0)?,
                 started_unix: row.get(1)?,
@@ -676,6 +730,8 @@ impl Database {
                 coverage: row.get(11)?,
                 idle_ratio: row.get(12)?,
                 map_name: row.get(13)?,
+                character_id: row.get(14)?,
+                character_name: row.get(15)?,
             })
         })?;
         let mut list = Vec::new();
@@ -689,13 +745,13 @@ impl Database {
     ///
     /// 汇总用 SQL 现算而不是把列表加起来：列表只取最近 30 条，
     /// 拿它当总数会把「一共练了多少」报少。
-    pub fn exp_totals(&self) -> Result<ExpTotals> {
+    pub fn exp_totals(&self, character: Option<i64>) -> Result<ExpTotals> {
         let conn = self.conn.lock();
         let mut stmt = conn.prepare(
             "SELECT COUNT(*), COALESCE(SUM(active_secs), 0), COALESCE(SUM(gained_exp), 0)
-             FROM exp_sessions",
+             FROM exp_sessions WHERE ?1 IS NULL OR character_id = ?1",
         )?;
-        let totals = stmt.query_row([], |row| {
+        let totals = stmt.query_row(params![character], |row| {
             Ok(ExpTotals {
                 sessions: row.get(0)?,
                 active_secs: row.get(1)?,
@@ -706,13 +762,17 @@ impl Database {
     }
 
     /// 曲线用的采样点（每段会话的每分钟一个点）。
-    pub fn exp_curve(&self, limit: u32) -> Result<Vec<ExpCurvePoint>> {
+    ///
+    /// `character` 给了就只要这个角色的：两个号的本级经验画在一条线上是一团锯齿。
+    pub fn exp_curve(&self, limit: u32, character: Option<i64>) -> Result<Vec<ExpCurvePoint>> {
         let conn = self.conn.lock();
         let mut stmt = conn.prepare(
-            "SELECT captured_at, exp, percent, level FROM exp_samples
-             ORDER BY captured_at DESC LIMIT ?1",
+            "SELECT p.captured_at, p.exp, p.percent, p.level
+             FROM exp_samples p JOIN exp_sessions s ON s.id = p.session_id
+             WHERE ?2 IS NULL OR s.character_id = ?2
+             ORDER BY p.captured_at DESC LIMIT ?1",
         )?;
-        let rows = stmt.query_map(params![limit], |row| {
+        let rows = stmt.query_map(params![limit, character], |row| {
             Ok(ExpCurvePoint {
                 captured_unix: row.get(0)?,
                 exp: row.get(1)?,
@@ -764,6 +824,167 @@ impl Database {
         conn.execute("DELETE FROM exp_samples", [])?;
         log::info!("经验历史已清空（{} 段）", sessions);
         Ok(sessions)
+    }
+
+    // -----------------------------------------------------------------------
+    // 角色
+    // -----------------------------------------------------------------------
+
+    /// 把「看到的角色」对到库里的一行上，没有就新建。返回 (id, 名字, 职业)。
+    ///
+    /// 先按指纹找；指纹没见过、但读出来的名字和某个角色一样（换了分辨率，指纹变了），
+    /// 就把这个指纹也挂到那个角色上；都对不上才新建。名字没读出来的新角色先叫
+    /// 「未命名角色」，之后读出来了（或者用户自己改）再换。
+    pub fn resolve_character(
+        &self,
+        mark: &str,
+        name: &str,
+        job: &str,
+    ) -> Result<(i64, String, String)> {
+        let mut conn = self.conn.lock();
+        let tx = conn.transaction()?;
+        let now = chrono::Utc::now().timestamp();
+        // 指纹指着一个已经被删掉的角色时当没见过
+        let by_mark: Option<i64> = tx
+            .query_row(
+                "SELECT m.character_id FROM exp_character_marks m
+                 JOIN exp_characters c ON c.id = m.character_id
+                 WHERE m.fingerprint = ?1",
+                params![mark],
+                |row| row.get(0),
+            )
+            .ok();
+        let by_name: Option<i64> = if name.is_empty() {
+            None
+        } else {
+            tx.query_row(
+                "SELECT id FROM exp_characters WHERE name = ?1 ORDER BY last_seen DESC LIMIT 1",
+                params![name],
+                |row| row.get(0),
+            )
+            .ok()
+        };
+        let id = match by_mark.or(by_name) {
+            Some(id) => id,
+            None => {
+                let shown = if name.is_empty() { UNNAMED_CHARACTER } else { name };
+                tx.execute(
+                    "INSERT INTO exp_characters (name, job, first_seen, last_seen)
+                     VALUES (?1, ?2, ?3, ?3)",
+                    params![shown, job, now],
+                )?;
+                let id = tx.last_insert_rowid();
+                log::info!("认到一个新角色：{shown}（{job}）id={id}");
+                id
+            }
+        };
+        tx.execute(
+            "INSERT INTO exp_character_marks (fingerprint, character_id) VALUES (?1, ?2)
+             ON CONFLICT(fingerprint) DO UPDATE SET character_id = ?2",
+            params![mark, id],
+        )?;
+        // 读出来的名字只补「还没名字」的那种：用户改过的、之前读出来过的都不覆盖。
+        // 职业读到了就跟着更新（转职）。
+        if !name.is_empty() {
+            tx.execute(
+                "UPDATE exp_characters SET name = ?2
+                 WHERE id = ?1 AND renamed = 0 AND name = ?3",
+                params![id, name, UNNAMED_CHARACTER],
+            )?;
+        }
+        if !job.is_empty() {
+            tx.execute(
+                "UPDATE exp_characters SET job = ?2 WHERE id = ?1",
+                params![id, job],
+            )?;
+        }
+        tx.execute(
+            "UPDATE exp_characters SET last_seen = ?2 WHERE id = ?1",
+            params![id, now],
+        )?;
+        let (shown, job): (String, String) = tx.query_row(
+            "SELECT name, job FROM exp_characters WHERE id = ?1",
+            params![id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        tx.commit()?;
+        Ok((id, shown, job))
+    }
+
+    /// 记下角色现在的等级和经验进度（角色列表上那条进度条）。
+    pub fn touch_character(
+        &self,
+        id: i64,
+        level: Option<u32>,
+        exp: u64,
+        percent: f64,
+    ) -> Result<()> {
+        let conn = self.conn.lock();
+        conn.execute(
+            "UPDATE exp_characters
+             SET level = COALESCE(?2, level), exp = ?3, percent = ?4, last_seen = ?5
+             WHERE id = ?1",
+            params![id, level, exp, percent, chrono::Utc::now().timestamp()],
+        )?;
+        Ok(())
+    }
+
+    /// 角色列表（最近玩的在前），带各自名下历史的汇总。
+    pub fn list_characters(&self) -> Result<Vec<CharacterRow>> {
+        let conn = self.conn.lock();
+        let mut stmt = conn.prepare(
+            "SELECT c.id, c.name, c.job, c.level, c.exp, c.percent, c.last_seen,
+                    COUNT(s.id), COALESCE(SUM(s.active_secs), 0), COALESCE(SUM(s.gained_exp), 0)
+             FROM exp_characters c LEFT JOIN exp_sessions s ON s.character_id = c.id
+             GROUP BY c.id ORDER BY c.last_seen DESC, c.id DESC",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(CharacterRow {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                job: row.get(2)?,
+                level: row.get(3)?,
+                exp: row.get(4)?,
+                percent: row.get(5)?,
+                last_seen_unix: row.get(6)?,
+                sessions: row.get(7)?,
+                active_secs: row.get(8)?,
+                gained_exp: row.get(9)?,
+            })
+        })?;
+        let mut list = Vec::new();
+        for item in rows {
+            list.push(item?);
+        }
+        Ok(list)
+    }
+
+    /// 用户自己给角色改名（OCR 认错了字的时候）。改过之后读出来的名字不再覆盖它。
+    pub fn rename_character(&self, id: i64, name: &str) -> Result<bool> {
+        let conn = self.conn.lock();
+        let changed = conn.execute(
+            "UPDATE exp_characters SET name = ?2, renamed = 1 WHERE id = ?1",
+            params![id, name],
+        )?;
+        Ok(changed > 0)
+    }
+
+    /// 从列表里拿掉一个角色。它名下的历史**留着**（变成没有归属的记录），
+    /// 删角色不该顺手删掉练级记录；下次再看到这个角色会重新建一行。
+    pub fn delete_character(&self, id: i64) -> Result<bool> {
+        let mut conn = self.conn.lock();
+        let tx = conn.transaction()?;
+        let removed = tx.execute("DELETE FROM exp_characters WHERE id = ?1", params![id])?;
+        tx.execute(
+            "DELETE FROM exp_character_marks WHERE character_id = ?1",
+            params![id],
+        )?;
+        tx.execute(
+            "UPDATE exp_sessions SET character_id = NULL WHERE character_id = ?1",
+            params![id],
+        )?;
+        tx.commit()?;
+        Ok(removed > 0)
     }
 
     /// 按小地图的像素指纹查地图名（查不到就是第一次来这张图）。
@@ -1007,6 +1228,7 @@ mod tests {
             idle_ratio: 0.2,
             rejected_frames: 0,
             map_name: "蚂蚁洞".to_string(),
+            character_id: None,
         }
     }
 
@@ -1043,17 +1265,76 @@ mod tests {
             .expect("写第二段失败");
 
         assert!(db.delete_exp_session(first).expect("删除失败"));
-        let rows = db.exp_history(10).expect("读历史失败");
+        let rows = db.exp_history(10, None).expect("读历史失败");
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].id, second);
-        assert_eq!(db.exp_totals().expect("读汇总失败").sessions, 1);
+        assert_eq!(db.exp_totals(None).expect("读汇总失败").sessions, 1);
         // 第一段的两个采样点跟着没了，第二段的还在
-        let curve = db.exp_curve(100).expect("读曲线失败");
+        let curve = db.exp_curve(100, None).expect("读曲线失败");
         assert_eq!(curve.len(), 1);
         assert_eq!(curve[0].captured_unix, 3);
 
         // 删一个不存在的：不报错，如实说没删到
         assert!(!db.delete_exp_session(first).expect("重复删除不该报错"));
+
+        let _ = std::fs::remove_file(path);
+    }
+
+    /// 角色靠指纹认；指纹换了（换分辨率）但名字一样的并到同一个角色上。
+    #[test]
+    fn characters_are_keyed_by_mark_and_merged_by_name() {
+        let (db, path) = temp_db("characters");
+
+        // 名字还没读出来：先建一个未命名的，读出来之后补上
+        let (first, name, _) = db.resolve_character("m1", "", "").expect("建角色失败");
+        assert_eq!(name, UNNAMED_CHARACTER);
+        let (again, name, job) = db.resolve_character("m1", "大号", "牧师").expect("补名字失败");
+        assert_eq!((again, name.as_str(), job.as_str()), (first, "大号", "牧师"));
+
+        // 另一个指纹、同一个名字：还是它
+        let (merged, _, _) = db.resolve_character("m2", "大号", "牧师").expect("并指纹失败");
+        assert_eq!(merged, first);
+        // 另一个名字：新角色
+        let (second, _, _) = db.resolve_character("m3", "小号", "飞侠").expect("建第二个失败");
+        assert_ne!(second, first);
+
+        // 用户改过名之后，读出来的名字不再覆盖；转职了职业跟着变
+        assert!(db.rename_character(first, "我的大号").expect("改名失败"));
+        let (_, name, job) = db.resolve_character("m1", "大号", "祭司").expect("再认失败");
+        assert_eq!((name.as_str(), job.as_str()), ("我的大号", "祭司"));
+
+        db.touch_character(first, Some(57), 1_000, 0.1).expect("记进度失败");
+        // 等级这一帧定不出来：留着上一次的
+        db.touch_character(first, None, 2_000, 0.2).expect("记进度失败");
+
+        let mut mine = sample_row(2);
+        mine.character_id = Some(first);
+        db.insert_exp_session(&mine, &[]).expect("写入失败");
+        db.insert_exp_session(&sample_row(2), &[]).expect("写入失败");
+
+        let list = db.list_characters().expect("读角色列表失败");
+        assert_eq!(list.len(), 2);
+        let big = list.iter().find(|row| row.id == first).expect("大号应该在");
+        assert_eq!((big.level, big.exp, big.sessions), (Some(57), Some(2_000), 1));
+        assert_eq!(big.gained_exp, mine.gained_exp);
+
+        // 历史按角色筛：只有它的那一段；不筛是两段
+        let rows = db.exp_history(10, Some(first)).expect("读历史失败");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].character_name.as_deref(), Some("我的大号"));
+        assert_eq!(db.exp_history(10, None).expect("读历史失败").len(), 2);
+        assert_eq!(db.exp_totals(Some(first)).expect("读汇总失败").sessions, 1);
+        assert_eq!(db.exp_totals(Some(second)).expect("读汇总失败").sessions, 0);
+
+        // 删角色不删历史：那一段变成没有归属的
+        assert!(db.delete_character(first).expect("删角色失败"));
+        assert_eq!(db.list_characters().expect("读角色列表失败").len(), 1);
+        let rows = db.exp_history(10, None).expect("读历史失败");
+        assert_eq!(rows.len(), 2);
+        assert!(rows.iter().all(|row| row.character_id.is_none()));
+        // 再看到它：重新建一行（旧指纹指着的那一行已经没了）
+        let (reborn, _, _) = db.resolve_character("m1", "大号", "祭司").expect("重建失败");
+        assert_ne!(reborn, first);
 
         let _ = std::fs::remove_file(path);
     }
@@ -1201,7 +1482,7 @@ mod tests {
         let id = db.insert_exp_session(&row, &[]).expect("写会话失败");
         assert_eq!(id, 1);
 
-        let history = db.exp_history(10).expect("读历史失败");
+        let history = db.exp_history(10, None).expect("读历史失败");
         assert_eq!(history.len(), 1);
         assert_eq!(history[0].quality, 1);
         assert_eq!(history[0].quality_reason, "整段都能读到画面");
@@ -1211,7 +1492,7 @@ mod tests {
         // 地图名要跟着这一行回来（小结卡片和历史列表都靠它）
         assert_eq!(history[0].map_name, "蚂蚁洞");
 
-        let totals = db.exp_totals().expect("读汇总失败");
+        let totals = db.exp_totals(None).expect("读汇总失败");
         assert_eq!(totals.sessions, 1);
         assert!((totals.active_secs - 3600.0).abs() < 1e-9);
         assert_eq!(totals.gained_exp, row.gained_exp);
@@ -1325,7 +1606,7 @@ mod tests {
 
         // 新版本打开它 → 自动补列
         let db = Database::new(path.clone()).expect("升级老库失败");
-        let history = db.exp_history(10).expect("读老数据失败");
+        let history = db.exp_history(10, None).expect("读老数据失败");
         assert_eq!(history.len(), 1, "老数据必须还在");
         assert_eq!(history[0].gained_exp, 100);
         // 老数据没有质量结论，按「数据完整」的默认值读出来（不做假结论：旧行本来就是

@@ -116,6 +116,7 @@ function expStatus() {
     font_symbols: "%().0123456789EPX",
     region: null,
     region_lost: false,
+    character: { id: 1, name: "枫叶牧师", job: "牧师" },
     goal:
       goalLevel == null
         ? null
@@ -179,6 +180,14 @@ const items = [
 ];
 
 // 练级历史（可以在页面上逐条删）
+/** 两个号：历史里单数行算大号的、双数行算小号的 */
+let characterRows = [
+  { id: 1, name: "枫叶牧师", job: "牧师", level: 187, exp: 1_234_567_890, percent: 47.32, last_seen_unix: 1790710000 },
+  { id: 2, name: "小号abc", job: "刺客", level: 43, exp: 61_200, percent: 8.5, last_seen_unix: 1790606000 },
+];
+const characterOf = (rowId: number) =>
+  characterRows.some((item) => item.id === 2 - (rowId % 2)) ? 2 - (rowId % 2) : null;
+
 let historyRows = [
       { id: 1, started_unix: 1790700000, ended_unix: 1790710000, active_secs: 9800, gained_exp: 72_000_000, start_level: 186, start_percent: 61.2, end_level: 187, end_percent: 12.4, map_name: "冰封雪域", quality: 2, quality_reason: "", coverage: 0.99, idle_ratio: 0.08 },
       { id: 2, started_unix: 1790600000, ended_unix: 1790606000, active_secs: 5600, gained_exp: 39_000_000, start_level: 186, start_percent: 20.1, end_level: 186, end_percent: 58.9, map_name: "", quality: 1, quality_reason: "画面偶有遮挡", coverage: 0.9, idle_ratio: 0.3 },
@@ -312,14 +321,41 @@ const handlers: Record<string, (args: any) => unknown> = {
   }),
   get_blacklist: () => [],
   known_exp_maps: () => [],
-  get_exp_history: () => ({
-    rows: historyRows,
-    totals: {
-      sessions: historyRows.length,
-      active_secs: historyRows.reduce((sum, row) => sum + row.active_secs, 0),
-      gained_exp: historyRows.reduce((sum, row) => sum + row.gained_exp, 0),
-    },
-  }),
+  get_exp_history: ({ character }: any = {}) => {
+    const rows = historyRows
+      .filter((row) => character == null || characterOf(row.id) === character)
+      .map((row) => ({
+        ...row,
+        character_id: characterOf(row.id),
+        character_name: characterRows.find((item) => item.id === characterOf(row.id))?.name ?? null,
+      }));
+    return {
+      rows,
+      totals: {
+        sessions: rows.length,
+        active_secs: rows.reduce((sum, row) => sum + row.active_secs, 0),
+        gained_exp: rows.reduce((sum, row) => sum + row.gained_exp, 0),
+      },
+    };
+  },
+  list_exp_characters: () =>
+    characterRows.map((item) => {
+      const mine = historyRows.filter((row) => characterOf(row.id) === item.id);
+      return {
+        ...item,
+        sessions: mine.length,
+        active_secs: mine.reduce((sum, row) => sum + row.active_secs, 0),
+        gained_exp: mine.reduce((sum, row) => sum + row.gained_exp, 0),
+      };
+    }),
+  rename_exp_character: ({ id, name }: any) => {
+    characterRows = characterRows.map((item) => (item.id === id ? { ...item, name } : item));
+    return null;
+  },
+  delete_exp_character: ({ id }: any) => {
+    characterRows = characterRows.filter((item) => item.id !== id);
+    return null;
+  },
   delete_exp_session: ({ id }: any) => {
     historyRows = historyRows.filter((row) => row.id !== id);
     return null;

@@ -53,6 +53,12 @@ const LABEL_DY: f64 = 13.0;
 const EXP_TEXT: (f64, f64, f64, f64) = (808.0, 3.0, 167.0, 16.0);
 /// 等级区（`Lv.xx`）在参考坐标系里的矩形。
 const LEVEL_BOX: (f64, f64, f64, f64) = (8.0, 7.0, 86.0, 28.0);
+/// 职业 / 角色名那两行字（等级右边：上一行职业、下一行角色名）。
+///
+/// 1080p 宽版真机量的：字从 x=110 起，职业占 y 7..17、角色名占 y 20..31；
+/// 右边一直留到 HP 标签前的分隔线（x≈451），名字再长也到不了那儿。
+const JOB_TEXT: (f64, f64, f64, f64) = (104.0, 4.0, 340.0, 15.0);
+const NAME_TEXT: (f64, f64, f64, f64) = (104.0, 18.0, 340.0, 15.0);
 
 /// 紧凑皮肤（短血条，网页版 `D`）：1280×37 的 HUD 精灵，三个条宽度不一。
 ///
@@ -573,6 +579,9 @@ pub struct HudLayout {
     pub level_box: (i32, i32, i32, i32),
     /// 小地图锚点推出的地图名区域（找不到小地图时为 `None`）。
     pub map_name: Option<(i32, i32, i32, i32)>,
+    /// 职业 / 角色名那两行字。紧凑版 HUD 还没有真机画面可量，先是 `None`。
+    pub job_text: Option<(i32, i32, i32, i32)>,
+    pub name_text: Option<(i32, i32, i32, i32)>,
 }
 
 impl HudLayout {
@@ -1026,6 +1035,13 @@ fn layout_for(anchor: HudAnchor, pixels: &Pixels<'_>) -> HudLayout {
         25.0 * a.sx,
         11.0 * a.sy,
     );
+    let identity = |reference| match a.skin {
+        HudSkin::Wide => Some(clamp_rect(
+            sprite_rect(a, (ANCHOR_X, ANCHOR_Y), reference),
+            frame,
+        )),
+        HudSkin::Compact => None,
+    };
     let mut layout = HudLayout {
         anchor,
         exp_text: (0, 0, 1, 1),
@@ -1033,6 +1049,8 @@ fn layout_for(anchor: HudAnchor, pixels: &Pixels<'_>) -> HudLayout {
         exp_label: clamp_rect(exp_label, frame),
         level_box: clamp_rect(level_box, frame),
         map_name: None,
+        job_text: identity(JOB_TEXT),
+        name_text: identity(NAME_TEXT),
     };
     layout.exp_text = clamp_rect(layout.exp_text_exact(), frame);
     layout

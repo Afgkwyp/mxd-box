@@ -23,6 +23,7 @@
 //! 暂停则是「精确扣除」：恢复时把下一帧标成**只立基准**，暂停期间你一直在打也无所谓。
 
 use crate::db::{Database, ExpSampleRow, ExpSessionRow};
+use crate::exp::character::{CharacterReader, Sighting};
 use crate::exp::map::{MapReader, MapSnapshot};
 use crate::exp::reader::{CalibrationTest, ExpReader, ReadFailure, Sample};
 use crate::exp::region::{NormRect, RegionProfile};
@@ -296,7 +297,20 @@ pub struct ExpStatus {
     pub notice: Option<String>,
     /// 练级目标的进度；没设目标就是 `None`
     pub goal: Option<ExpGoal>,
+    /// 现在登录的角色；还没认出来（或紧凑版状态栏）是 `None`
+    pub character: Option<CharacterBrief>,
 }
+
+/// 现在登录的是哪个角色（`exp_characters` 里的一行，见 `exp::character`）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct CharacterBrief {
+    pub id: i64,
+    pub name: String,
+    pub job: String,
+}
+
+/// 角色的等级和经验至少隔这么久才往库里写一次（等级变了立刻写）。
+const CHARACTER_SAVE_SECS: f64 = 30.0;
 
 /// 练级目标：到目标等级还差多少、按本段时速还要多久。
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -349,6 +363,8 @@ struct Session {
     stats: SessionStats,
     points: Vec<ExpSampleRow>,
     last_bucket: i64,
+    /// 这一段是哪个角色的。开始时还没认出角色就是 `None`，认出来之后补上。
+    character_id: Option<i64>,
 }
 
 impl Session {
@@ -512,6 +528,12 @@ struct Inner {
     region: Option<RegionProfile>,
     /// 手动框连续读不到（从 reader 拷过来）。
     region_lost: bool,
+    /// 上一次对到库里的那次「看到的角色」（没变就不用再查库）
+    sighting: Option<Sighting>,
+    /// 现在登录的角色
+    character: Option<CharacterBrief>,
+    /// 上一次写进库的角色进度：（角色, 等级, 本级经验, 时刻）
+    character_saved: Option<(i64, Option<u32>, u64, Instant)>,
 }
 
 /// 抓屏与认字的家当：游戏窗口句柄、字形表、地图指纹缓存。
@@ -529,6 +551,8 @@ struct Io {
     reader: ExpReader,
     /// 认「现在在哪个地图」（记小地图的像素指纹，见 `exp::map`）
     place: MapReader,
+    /// 认「现在是哪个角色」（状态栏上的名字和职业，见 `exp::character`）
+    who: CharacterReader,
 }
 
 pub struct ExpTracker {
@@ -552,6 +576,7 @@ impl ExpTracker {
             io: Mutex::new(Io {
                 reader,
                 place: MapReader::new(),
+                who: CharacterReader::new(),
             }),
             inner: Mutex::new(Inner {
                 place_snapshot: MapSnapshot::default(),
@@ -578,6 +603,9 @@ impl ExpTracker {
                 logged_first_failure: false,
                 region: None,
                 region_lost: false,
+                sighting: None,
+                character: None,
+                character_saved: None,
             }),
             font_symbols,
         }
@@ -636,7 +664,7 @@ impl ExpTracker {
         // 2) io 锁里干慢活：认地图（可能触发 ONNX 编译与推理）+ 抓屏 + 认字形。
         //    **这一段绝不拿着 inner** —— 以前它在大锁里面，每个采样周期都有几百
         //    毫秒任何要拿 inner 的命令（内存 / 经验状态 / 开始暂停）都得排队。
-        let (snapshot, result, window_title, region, region_lost) = {
+        let (snapshot, result, window_title, region, region_lost, sighting, identity) = {
             let mut io = self.io.lock();
             let window = io.reader.window();
             // 先看看在哪个地图。优先用手动校准的地图名区域；没有就用 HUD 锚点
@@ -662,6 +690,21 @@ impl ExpTracker {
             };
             io.reader.set_in_game(in_game);
             let result = io.reader.read();
+            // 读成了才看角色：状态栏那两行字跟着同一个锚点，经验读不出来时锚点也不可信。
+            // `None` = 这一轮没看（不是「没有角色」），之前认到的留着。
+            let rects = match (&result, window) {
+                (Ok(_), Some(hwnd)) => crate::exp::capture::client_size(hwnd)
+                    .and_then(|(w, h)| io.reader.identity_rects(w, h))
+                    .map(|rects| (hwnd, rects)),
+                _ => None,
+            };
+            if result.is_err() {
+                io.who.doubt();
+            }
+            let sighting =
+                rects.and_then(|(hwnd, (name, job))| io.who.look(hwnd, name, job));
+            // （名字正在变, 刚亲眼确认过是谁, 经验刚恢复还没重新确认）
+            let identity = (io.who.unsettled(), io.who.verified(), io.who.suspect());
             // 标题 / 校准框顺手在这里取走（它们只在 `io` 里），下一段随状态机存进 inner —
             // `status()` 就再也不用为这些几乎不变的东西去碰 `io` 锁
             (
@@ -670,8 +713,26 @@ impl ExpTracker {
                 io.reader.window_title(),
                 io.reader.calibration(),
                 io.reader.manual_lost(),
+                sighting,
+                identity,
             )
         };
+        let (unsettled, verified, suspect) = identity;
+
+        // 2.4) 看到的角色和上一次不一样（换角色 / 名字刚读出来 / 转职）才去库里对一次。
+        //      和地图名的修正一样放在拿 inner 之前：查库不该在状态机锁里做。
+        let character = sighting.and_then(|seen| {
+            if self.inner.lock().sighting.as_ref() == Some(&seen) {
+                return None;
+            }
+            match db.resolve_character(&seen.mark, &seen.name, &seen.job) {
+                Ok((id, name, job)) => Some((seen, CharacterBrief { id, name, job })),
+                Err(err) => {
+                    log::warn!("记角色失败：{err}");
+                    None
+                }
+            }
+        });
 
         // 2.5) OCR 的名字只差一个字时，拉回本地记过的名字（「随法密林」→「魔法密林」）。
         //      放在拿 inner 之前：查库是数据库的活，不该在状态机锁里做。
@@ -701,7 +762,34 @@ impl ExpTracker {
                 }
                 guard.place_snapshot = snapshot;
             }
+            if let Some((seen, brief)) = character {
+                note_character(&mut guard, seen, brief);
+            }
+            // 这一帧的经验是不是这一段那个角色的。名字那一块正在变（刚换角色，还没
+            // 确认是谁）、经验刚恢复还没重新看到名字、或者登录的是另一个角色时，
+            // 读数只更新显示、不进这一段的账 —— 做法是这一帧当成「暂停中」并进去。
+            let held = guard.phase == Phase::Running
+                && (unsettled || suspect || is_foreign(&guard));
+            if held {
+                guard.phase = Phase::Paused;
+            }
             apply_read(&mut guard, result, now, wall);
+            if held {
+                guard.phase = Phase::Running;
+            }
+            // 角色的等级和经验只在**刚亲眼确认过是谁**的时候写：`guard.character` 在
+            // 没轮到看 / 看不到的时候是上一次的角色，换角色回来的头十几秒尤其如此。
+            let progress = if verified {
+                character_progress(&mut guard, now)
+            } else {
+                None
+            };
+            drop(guard);
+            if let Some((id, level, exp, percent)) = progress {
+                if let Err(err) = db.touch_character(id, level, exp, percent) {
+                    log::debug!("记角色进度失败：{err}");
+                }
+            }
         }
 
         let status = self.status();
@@ -854,7 +942,16 @@ impl ExpTracker {
             region_lost: guard.region_lost,
             notice: guard.notice.clone(),
             goal,
+            character: guard.character.clone(),
         }
+    }
+
+    /// 角色被改名 / 删掉之后调用：忘掉「上一次对到的是谁」，下一轮重新对一次库。
+    pub fn forget_character(&self) {
+        let mut guard = self.inner.lock();
+        guard.sighting = None;
+        guard.character = None;
+        guard.character_saved = None;
     }
 
     /// 「测试读数」：拿一个还没保存的框立刻读一次（地图 / 等级 / 经验行都走它）。
@@ -935,6 +1032,7 @@ impl ExpTracker {
                 percent: sample.percent,
             }],
             last_bucket: 0,
+            character_id: guard.character.as_ref().map(|who| who.id),
         });
         guard.points.clear();
         guard.window_origin = None;
@@ -968,6 +1066,11 @@ impl ExpTracker {
         let mut guard = self.inner.lock();
         if guard.phase != Phase::Paused {
             return Err("现在没有暂停中的统计".to_string());
+        }
+        if is_foreign(&guard) {
+            return Err(
+                "这一段是另一个角色的：切回那个角色再继续，或者先结束这一段".to_string(),
+            );
         }
         guard.phase = Phase::Running;
         // 暂停期间经验也会涨（用户可能一边挂着一边打），所以**换一个基准**：
@@ -1088,6 +1191,7 @@ impl ExpTracker {
             idle_ratio: 1.0 - quality.active_ratio,
             rejected_frames: quality.rejected_frames,
             map_name,
+            character_id: session.character_id,
         };
         let id = db
             .insert_exp_session(&row, &session.points)
@@ -1161,6 +1265,65 @@ fn on_a_channel(app: &AppHandle) -> bool {
             channel.channel.is_some() && channel.source != "stale"
         })
         .unwrap_or(true)
+}
+
+/// 现在登录的角色不是这一段开始时的那个。
+fn is_foreign(guard: &Inner) -> bool {
+    let mine = guard.session.as_ref().and_then(|session| session.character_id);
+    match (mine, guard.character.as_ref()) {
+        (Some(mine), Some(now)) => mine != now.id,
+        _ => false,
+    }
+}
+
+/// 认到了（或换了）角色。
+///
+/// 正在统计的那一段如果是别的角色的，**自动暂停**：两个号的经验记进同一段，
+/// 时速和升级数都是错的。还没归属的一段（开始时角色还没认出来）就归给现在这个。
+fn note_character(guard: &mut Inner, seen: Sighting, brief: CharacterBrief) {
+    guard.sighting = Some(seen);
+    guard.character = Some(brief.clone());
+    let Some(session) = guard.session.as_mut() else {
+        return;
+    };
+    match session.character_id {
+        None => session.character_id = Some(brief.id),
+        Some(mine) if mine != brief.id && guard.phase == Phase::Running => {
+            guard.phase = Phase::Paused;
+            guard.notice = Some(format!(
+                "换到了另一个角色（{}），这一段已自动暂停：切回原来的角色再点继续，或者结束这一段",
+                brief.name
+            ));
+            log::info!("经验统计：换到了角色 {}，自动暂停", brief.name);
+        }
+        _ => {}
+    }
+}
+
+/// 该不该把角色现在的等级 / 经验写进库：返回要写的（角色, 等级, 本级经验, 百分比）。
+///
+/// 等级变了、或者换了角色立刻写；只是经验涨了就隔 [`CHARACTER_SAVE_SECS`] 写一次。
+fn character_progress(guard: &mut Inner, now: Instant) -> Option<(i64, Option<u32>, u64, f64)> {
+    if guard.failure.is_some() {
+        return None;
+    }
+    let id = guard.character.as_ref()?.id;
+    let sample = guard.last_sample.as_ref()?;
+    let level = sample.level.or(sample.screen_level);
+    let (exp, percent) = (sample.exp, sample.percent);
+    let due = match guard.character_saved {
+        Some((saved_id, saved_level, saved_exp, at)) => {
+            saved_id != id
+                || (level.is_some() && saved_level != level)
+                || (saved_exp != exp && (now - at).as_secs_f64() >= CHARACTER_SAVE_SECS)
+        }
+        None => true,
+    };
+    if !due {
+        return None;
+    }
+    guard.character_saved = Some((id, level, exp, now));
+    Some((id, level, exp, percent))
 }
 
 /// 把一次读到的结果并进状态机。抽出来是为了能单独写测试。
@@ -1527,10 +1690,16 @@ fn snap_map_name(db: &Database, name: &str) -> Option<String> {
 }
 
 /// 等长的两个串是不是只差一个字。
+///
+/// 差的是**两个数字**不算：`猴子沼泽地2` 和 `猴子沼泽地3`、`第2军营` 和 `第3军营`
+/// 是两张不同的地图，不是认错了一个字 —— 拉过去就是把人挪到了隔壁那张图。
 fn is_one_edit_apart(a: &str, b: &str) -> bool {
     let mut diff = 0;
     for (x, y) in a.chars().zip(b.chars()) {
         if x != y {
+            if x.is_ascii_digit() && y.is_ascii_digit() {
+                return false;
+            }
             diff += 1;
             if diff > 1 {
                 return false;
@@ -1880,6 +2049,7 @@ mod tests {
                 stats: SessionStats::default(),
                 points: Vec::new(),
                 last_bucket: 0,
+                character_id: None,
             }),
             pending: None,
             points: VecDeque::new(),
@@ -1901,6 +2071,9 @@ mod tests {
             logged_first_failure: false,
             region: None,
             region_lost: false,
+            sighting: None,
+            character: None,
+            character_saved: None,
         }
     }
 
@@ -2071,6 +2244,70 @@ mod tests {
         assert_eq!(paused.last_effective, Some((427_096, 55)));
     }
 
+    fn brief(id: i64, name: &str) -> CharacterBrief {
+        CharacterBrief {
+            id,
+            name: name.to_string(),
+            job: String::new(),
+        }
+    }
+
+    fn seen(mark: &str) -> Sighting {
+        Sighting {
+            mark: mark.to_string(),
+            name: String::new(),
+            job: String::new(),
+        }
+    }
+
+    /// 统计中换了角色：这一段自动暂停，而且不会被归到新角色名下。
+    #[test]
+    fn switching_character_pauses_the_running_session() {
+        let mut state = inner(Phase::Running);
+        // 开始时还没认出角色：认到的第一个就是这一段的
+        note_character(&mut state, seen("a"), brief(1, "大号"));
+        assert_eq!(state.session.as_ref().unwrap().character_id, Some(1));
+        assert_eq!(state.phase, Phase::Running);
+        assert!(!is_foreign(&state));
+
+        note_character(&mut state, seen("b"), brief(2, "小号"));
+        assert_eq!(state.phase, Phase::Paused);
+        assert!(is_foreign(&state));
+        assert_eq!(state.session.as_ref().unwrap().character_id, Some(1));
+
+        // 切回来：不再是别人的，但要用户自己点继续
+        note_character(&mut state, seen("a"), brief(1, "大号"));
+        assert!(!is_foreign(&state));
+        assert_eq!(state.phase, Phase::Paused);
+    }
+
+    /// 角色进度：换角色 / 升级立刻写库，只是经验涨了就按间隔写；读不到时不写。
+    #[test]
+    fn character_progress_is_saved_on_change_then_throttled() {
+        let mut state = inner(Phase::Idle);
+        state.character = Some(brief(1, "大号"));
+        let now = Instant::now();
+        let saved = |state: &mut Inner, at: Instant| {
+            character_progress(state, at).map(|(id, level, exp, _)| (id, level, exp))
+        };
+
+        state.last_sample = Some(sample(427_096, 55));
+        assert_eq!(saved(&mut state, now), Some((1, Some(55), 427_096)));
+        state.last_sample = Some(sample(427_196, 55));
+        assert_eq!(saved(&mut state, now), None, "间隔没到");
+        let later = now + Duration::from_secs(31);
+        assert_eq!(saved(&mut state, later), Some((1, Some(55), 427_196)));
+        state.last_sample = Some(sample(50, 56));
+        assert_eq!(saved(&mut state, later), Some((1, Some(56), 50)), "升级立刻写");
+
+        state.character = Some(brief(2, "小号"));
+        assert_eq!(saved(&mut state, later), Some((2, Some(56), 50)), "换角色立刻写");
+
+        state.last_sample = Some(sample(90, 56));
+        state.failure = Some(ReadFailure::NoWindow);
+        assert_eq!(saved(&mut state, later + Duration::from_secs(60)), None);
+    }
+
     /// 地图名近似只在**等长、差一个字、唯一候选**时采纳。
     #[test]
     fn map_name_snaps_to_a_single_one_character_neighbour() {
@@ -2079,6 +2316,9 @@ mod tests {
         // 「魔幻秘林」差两个字 —— 不认
         assert!(!is_one_edit_apart("魔法密林", "魔幻秘林"));
         assert!(!is_one_edit_apart("魔法密林", "魔法密林镇"));
+        // 只差一个数字的是两张不同的地图，不是认错
+        assert!(!is_one_edit_apart("猴子沼泽地2", "猴子沼泽地3"));
+        assert!(!is_one_edit_apart("第2军营", "第3军营"));
 
         let path = std::env::temp_dir().join(format!(
             "mxdbox-test-map-snap-{}.db",
@@ -2137,6 +2377,7 @@ mod tests {
             stats: SessionStats::default(),
             points: Vec::new(),
             last_bucket: 0,
+            character_id: None,
         });
         state.baseline = Some((Instant::now(), 0, 1));
         state.last_effective = Some((0, 1));
@@ -2292,6 +2533,7 @@ mod tests {
                 stats: SessionStats::default(),
                 points: Vec::new(),
                 last_bucket: 0,
+                character_id: None,
             });
         }
         tracker.start().expect("暂停状态下 start 不该报错");
@@ -2453,6 +2695,7 @@ mod tests {
                     },
                 ],
                 last_bucket: 60,
+                character_id: None,
             });
         }
 
@@ -2466,7 +2709,7 @@ mod tests {
             .resolve_pending(true, "", &db)
             .expect("计入历史不该失败");
 
-        let rows = db.exp_history(10).expect("读历史失败");
+        let rows = db.exp_history(10, None).expect("读历史失败");
         assert_eq!(rows.len(), 1);
         let row = &rows[0];
         assert_eq!(

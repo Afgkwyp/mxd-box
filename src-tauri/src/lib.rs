@@ -328,6 +328,9 @@ pub fn run() {
             clear_exp_history,
             delete_exp_session,
             clear_exp_notice,
+            list_exp_characters,
+            rename_exp_character,
+            delete_exp_character,
             save_share_card,
             copy_share_card,
         ])
