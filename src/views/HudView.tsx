@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { COOLDOWN, guard } from "../lib/throttle";
+import { COOLDOWN, guard, peekGuard } from "../lib/throttle";
 import { useQueryHistory, rememberQuery } from "../lib/queryHistory";
 import {
   Search,
@@ -95,13 +95,20 @@ const HudItemDetail: React.FC<{
   loading: boolean;
   error: string;
   onLoad: () => void;
-}> = ({ item, detail, loading, error, onLoad }) => (
+  /** 「谁掉」：切到掉落模式查这件（见方案 3.2） */
+  onDrops?: () => void;
+}> = ({ item, detail, loading, error, onLoad, onDrops }) => (
   <div className="tm-mono">
     <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8 }}>
       <b style={{ fontSize: 14, fontFamily: "inherit" }}>{item.name}</b>
       <span style={{ fontSize: 10, color: "var(--tm-dm)" }}>{item.server_name}</span>
     </div>
     <div className="tm-big">{item.lowest_price}</div>
+    {onDrops && (
+      <button type="button" className="tm-link" style={{ marginBottom: 8 }} onClick={onDrops} title="查哪只怪掉这件">
+        谁掉 ›
+      </button>
+    )}
 
     {loading && (
       <div style={{ color: "var(--tm-mu)", display: "flex", alignItems: "center", gap: 6, fontSize: 11 }}>
@@ -147,36 +154,50 @@ const HudItemDetail: React.FC<{
   </div>
 );
 
-/** 掉落行（紧凑）。 */
-const HudDropRow: React.FC<{ drop: DropEntry; onOpen: (url: string) => void }> = ({
-  drop,
-  onOpen,
-}) => (
-  <button
-    type="button"
-    onClick={() => onOpen(drop.item.pageUrl)}
-    title="在小册子打开这件道具的图鉴"
-    className={`tm-drop-row ${drop.matched ? "hit" : ""}`}
-  >
-    {drop.item.icon ? (
-      <img src={drop.item.icon} alt="" width={18} height={18} style={{ objectFit: "contain" }} loading="lazy" />
-    ) : (
-      <Package size={14} style={{ color: "var(--tm-dm)" }} />
-    )}
-    <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-      {drop.item.name}
-      <span className="tm-mono" style={{ color: "var(--tm-dm)", marginLeft: 6, fontSize: 10 }}>
-        ×{drop.min}-{drop.max}
-        {drop.questid > 0 && " · 任务"}
+/** 掉落行（紧凑）。「价」按钮存在时才显示（任务道具、道具名为空的行没有）。 */
+const HudDropRow: React.FC<{
+  drop: DropEntry;
+  onOpen: (url: string) => void;
+  onPrice?: (name: string) => void;
+}> = ({ drop, onOpen, onPrice }) => (
+  <div className={`tm-drop-row ${drop.matched ? "hit" : ""}`}>
+    {/* 名称区保持原行为（占满剩余宽度，点了开图鉴）——整行不再是按钮，按钮里不能套按钮 */}
+    <button
+      type="button"
+      className="tm-dr-main"
+      onClick={() => onOpen(drop.item.pageUrl)}
+      title="在小册子打开这件道具的图鉴"
+    >
+      {drop.item.icon ? (
+        <img src={drop.item.icon} alt="" width={18} height={18} style={{ objectFit: "contain" }} loading="lazy" />
+      ) : (
+        <Package size={14} style={{ color: "var(--tm-dm)" }} />
+      )}
+      <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        {drop.item.name}
+        <span className="tm-mono" style={{ color: "var(--tm-dm)", marginLeft: 6, fontSize: 10 }}>
+          ×{drop.min}-{drop.max}
+          {drop.questid > 0 && " · 任务"}
+        </span>
       </span>
-    </span>
+    </button>
+    {onPrice && drop.questid <= 0 && drop.item.name.trim() !== "" && (
+      <button
+        type="button"
+        className="tm-dr-price"
+        onClick={() => onPrice(drop.item.name)}
+        title="查这件的拍卖价"
+      >
+        价
+      </button>
+    )}
     <span
       className="tm-mono"
       style={{ fontWeight: 700, color: drop.matched ? "var(--tm-good)" : "var(--tm-wn)" }}
     >
       {drop.chanceText}
     </span>
-  </button>
+  </div>
 );
 
 export const HudView: React.FC = () => {
@@ -268,9 +289,11 @@ export const HudView: React.FC = () => {
    * 那几只默认摊开；搜**道具名**（锅盖）→ 一只都不展开，缩略行里已经写着命中那条掉落的概率。
    * `nextPage > 1` 是「加载更多」：新一页**接在后面**而不是把前面的冲掉。
    */
-  const handleSearchDrops = async (nextPage = 1) => {
-    // 翻页要用**当初搜的那个词**，而不是用户可能已经改过的输入框内容
-    const target = nextPage > 1 && drops ? drops.meta.keyword : keyword.trim();
+  const handleSearchDrops = async (nextPage = 1, override?: string) => {
+    // 显式给的词优先（联动「谁掉」用道具 ID 查更准，见方案 5.1）；翻页要用
+    // **当初搜的那个词**，而不是用户可能已经改过的输入框内容。
+    const target =
+      override?.trim() || (nextPage > 1 && drops ? drops.meta.keyword : keyword.trim());
     if (!target) return;
     const isCurrent = beginRequest();
     setDropsLoading(true);
@@ -357,6 +380,31 @@ export const HudView: React.FC = () => {
   const openSite = (url: string) => {
     if (!url) return;
     invoke("open_external_url", { url }).catch(() => {});
+  };
+
+  /**
+   * 掉落行「价」：切到查价模式，输入框填道具名，立即查价。
+   *
+   * 冷却期内**不跳转、只提示**（方案 5.4）：`peekGuard` 只问不占，真正的闸由
+   * `handleSearch` 自己过 —— 直接调 `guard` 会把这个窗口占掉，紧跟着的查询
+   * 反而被拦下。
+   */
+  const jumpToPrice = (name: string) => {
+    if (!name.trim()) return;
+    if (!peekGuard("query_market", "拍卖查询", COOLDOWN.query)) return;
+    switchMode("price");
+    setKeyword(name);
+    // 拍卖只支持按词查，用名字（方案 5.2）
+    void handleSearch(false, name);
+  };
+
+  /** 详情栏「谁掉」：切到掉落模式，输入框显示道具名，实际查道具 ID 更准（方案 5.1）。 */
+  const jumpToDrops = (item: MarketItem) => {
+    if (!peekGuard("search_drops", "掉落速查", COOLDOWN.query)) return;
+    switchMode("drop");
+    setKeyword(item.name);
+    // 没解析出道具 ID 的条目退回用名字查
+    void handleSearchDrops(1, item.id || item.name);
   };
 
   /**
@@ -619,6 +667,7 @@ export const HudView: React.FC = () => {
                             loading={itemDetail.loadingId === item.id}
                             error={itemDetail.openId === item.id ? itemDetail.error : ""}
                             onLoad={() => itemDetail.toggle(item.id)}
+                            onDrops={() => jumpToDrops(item)}
                           />
                         </div>
                       )}
@@ -700,7 +749,12 @@ export const HudView: React.FC = () => {
                               <span style={{ color: "var(--tm-dm)", fontSize: 11 }}>站点没有记录这只怪物的掉落。</span>
                             )}
                             {hit.drops.map((drop, index) => (
-                              <HudDropRow key={`${drop.item.itemId}-${index}`} drop={drop} onOpen={openSite} />
+                              <HudDropRow
+                                key={`${drop.item.itemId}-${index}`}
+                                drop={drop}
+                                onOpen={openSite}
+                                onPrice={jumpToPrice}
+                              />
                             ))}
                             {hit.maps.length > 0 && (
                               <div style={{ paddingTop: 4 }}>
@@ -832,6 +886,7 @@ export const HudView: React.FC = () => {
                 loading={itemDetail.loadingId === selected.id}
                 error={itemDetail.openId === selected.id ? itemDetail.error : ""}
                 onLoad={() => itemDetail.toggle(selected.id)}
+                onDrops={() => jumpToDrops(selected)}
               />
               </div>
             </aside>

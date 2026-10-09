@@ -288,20 +288,30 @@ const handlers: Record<string, (args: any) => unknown> = {
   }),
   search_drops: ({ keyword }: any) => ({
     ok: true,
-    meta: { keyword, page: 1, pageSize: 12, total: 1, totalPages: 1, dropTotal: 1, boss: false, source: "", sourceLabel: "" },
+    meta: { keyword, page: 1, pageSize: 12, total: 1, totalPages: 1, dropTotal: 2, boss: false, source: "", sourceLabel: "" },
     matches: { items: [], mobs: [{}] },
     results: [
       {
         mob: { mobId: 1, name: "无魂猴", level: 47, boss: false, categoryLabel: "", icon: "", hp: "3,200", exp: "210", pad: "", mad: "", pageUrl: "" },
         drops: [
           {
-            item: { itemId: 1, name: "锅盖", icon: "", reqLevel: 30, mainCategory: "", subCategory: "", pageUrl: "" },
+            item: { itemId: 1, name: "锅盖", icon: "", reqLevel: 30, mainCategory: "", subCategory: "", pageUrl: "https://mxdc.dvg.cn/item_info.php?id=1" },
             chance: 0.00007,
             chanceText: "0.007%",
             min: 1,
             max: 1,
             matched: true,
             questid: 0,
+          },
+          {
+            // 任务道具：行上不该出现「查价」按钮（没有任何拍卖意义）
+            item: { itemId: 4032379, name: "海盗冒险家表彰状", icon: "", reqLevel: 0, mainCategory: "", subCategory: "", pageUrl: "https://mxdc.dvg.cn/item_info.php?id=4032379" },
+            chance: 40000,
+            chanceText: "4%",
+            min: 1,
+            max: 1,
+            matched: false,
+            questid: 2409,
           },
         ],
         maps: [{ mapId: 1, name: "智慧森林（30只）", street: "", icon: "", pageUrl: "" }],

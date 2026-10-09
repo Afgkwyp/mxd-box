@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { COOLDOWN, guard } from "../lib/throttle";
 import { useLatestRequest } from "../lib/latest";
@@ -22,6 +22,17 @@ const DROPS_PREVIEW = 6;
 /** 地图同理：一排地图名很容易把卡片撑得很长。 */
 const MAPS_PREVIEW = 6;
 
+/**
+ * 从物价页「谁掉」带一个词进来：`term` 是输入框里显示的（道具名），
+ * `query` 是实际发给站点的词（用道具 ID 更准，见方案 5.1）；缺省两者相同。
+ * `nonce` 变了才算新的一次。
+ */
+export interface DropSeed {
+  term: string;
+  query?: string;
+  nonce: number;
+}
+
 /** 关键词示例：一个人不知道「能查什么」的时候，一行例子比一段说明管用。 */
 const EXAMPLES = ["锅盖", "绿蘑菇", "海盗冒险家表彰状", "1110100"];
 
@@ -41,7 +52,11 @@ const EXAMPLES = ["锅盖", "绿蘑菇", "海盗冒险家表彰状", "1110100"];
  * * **命中的那几条置顶并高亮**：一次查询往往返回几十条掉落（绿蘑菇有 34 条），
  *   用户想看的只是他查的那件东西。
  */
-export const MobDrops: React.FC = () => {
+export const MobDrops: React.FC<{
+  seed?: DropSeed;
+  /** 点某条掉落的「查价」：把道具名交给查询页去切页签查价 */
+  onSearchPrice?: (name: string) => void;
+}> = ({ seed, onSearchPrice }) => {
   const [keyword, setKeyword] = useState("");
   const [result, setResult] = useState<DropSearchResult | null>(null);
   const [loading, setLoading] = useState(false);
@@ -52,8 +67,13 @@ export const MobDrops: React.FC = () => {
   const [openMaps, setOpenMaps] = useState<Record<number, boolean>>({});
   /** 只认最后一次查询的响应，慢的旧响应不许覆盖新结果 */
   const beginRequest = useLatestRequest();
+  /**
+   * 联动进来的查询是「输入框显示道具名、实际用道具 ID 查」：翻页时继续沿用
+   * 这个名字，别把 ID 塞回输入框。普通搜索为 null，翻页行为和以前一致。
+   */
+  const seedDisplay = useRef<string | null>(null);
 
-  const search = async (raw: string, nextPage = 1) => {
+  const search = async (raw: string, nextPage = 1, display?: string) => {
     const target = raw.trim();
     if (!target) {
       setError("请输入怪物名、道具名或 ID");
@@ -81,7 +101,8 @@ export const MobDrops: React.FC = () => {
           ? { ...data, results: [...prev.results, ...data.results] }
           : data
       );
-      setKeyword(target);
+      setKeyword(display ?? target);
+      seedDisplay.current = display ?? null;
       setPage(nextPage);
       // 只在新搜索时清空展开状态：翻页（「加载更多」）时用户刚点开的那几只
       // 不该被收回去 —— 查价悬浮窗里就是保留的，两处行为要一致。
@@ -97,6 +118,18 @@ export const MobDrops: React.FC = () => {
       setLoading(false);
     }
   };
+
+  /** 同一次联动 seed 只处理一次（同 MarketSearch：StrictMode 会把挂载 effect 跑两遍，第二遍会被 guard 拦下并作废第一遍） */
+  const handledSeed = useRef(0);
+
+  useEffect(() => {
+    if (!seed?.term || handledSeed.current === seed.nonce) return;
+    handledSeed.current = seed.nonce;
+    setKeyword(seed.term);
+    void search(seed.query ?? seed.term, 1, seed.term);
+    // 只在「新的一次带词进来」时触发；search 每次渲染都是新函数，不能放进依赖
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seed?.nonce]);
 
   const openPage = (url: string) => {
     if (!url) return;
@@ -270,6 +303,7 @@ export const MobDrops: React.FC = () => {
                 }
                 sortedDrops={sortedDrops}
                 onOpenPage={openPage}
+                onSearchPrice={onSearchPrice}
               />
             ))}
           </div>
@@ -283,7 +317,7 @@ export const MobDrops: React.FC = () => {
             {result.meta.page < result.meta.totalPages && (
               <button
                 type="button"
-                onClick={() => search(result.meta.keyword, page + 1)}
+                onClick={() => search(result.meta.keyword, page + 1, seedDisplay.current ?? undefined)}
                 disabled={loading}
                 className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-white/10 text-slate-200 font-semibold cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
               >
@@ -311,7 +345,17 @@ const MobCard: React.FC<{
   onToggleMaps: () => void;
   sortedDrops: (drops: DropEntry[]) => DropEntry[];
   onOpenPage: (url: string) => void;
-}> = ({ hit, openDrops, openMaps, onToggleDrops, onToggleMaps, sortedDrops, onOpenPage }) => {
+  onSearchPrice?: (name: string) => void;
+}> = ({
+  hit,
+  openDrops,
+  openMaps,
+  onToggleDrops,
+  onToggleMaps,
+  sortedDrops,
+  onOpenPage,
+  onSearchPrice,
+}) => {
   const drops = sortedDrops(hit.drops);
   const visibleDrops = openDrops ? drops : drops.slice(0, DROPS_PREVIEW);
   const visibleMaps = openMaps ? hit.maps : hit.maps.slice(0, MAPS_PREVIEW);
@@ -404,42 +448,60 @@ const MobCard: React.FC<{
           )}
 
           {visibleDrops.map((drop, index) => (
-            <button
+            <div
               key={`${drop.item.itemId}-${index}`}
-              type="button"
-              onClick={() => onOpenPage(drop.item.pageUrl)}
-              title="在小册子打开这件道具的图鉴"
-              className={`w-full text-left flex items-center gap-2 px-2 py-1.5 rounded-lg border transition-colors cursor-pointer ${
+              className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg border transition-colors ${
                 drop.matched
                   ? "bg-emerald-500/10 border-emerald-500/30 hover:bg-emerald-500/15"
                   : "bg-slate-950/40 border-white/5 hover:bg-slate-800/60"
               }`}
             >
-              {drop.item.icon ? (
-                <img
-                  src={drop.item.icon}
-                  alt=""
-                  className="w-6 h-6 object-contain shrink-0"
-                  loading="lazy"
-                />
-              ) : (
-                <Package className="w-4 h-4 text-slate-600 shrink-0" />
-              )}
+              {/* 名称区保持原行为（占满剩余宽度，点了开图鉴）——整行不能再是按钮，按钮里不能套按钮 */}
+              <button
+                type="button"
+                onClick={() => onOpenPage(drop.item.pageUrl)}
+                title="在小册子打开这件道具的图鉴"
+                className="min-w-0 flex-1 flex items-center gap-2 text-left cursor-pointer"
+              >
+                {drop.item.icon ? (
+                  <img
+                    src={drop.item.icon}
+                    alt=""
+                    className="w-6 h-6 object-contain shrink-0"
+                    loading="lazy"
+                  />
+                ) : (
+                  <Package className="w-4 h-4 text-slate-600 shrink-0" />
+                )}
 
-              <span className="min-w-0 flex-1">
-                <span className="block text-xs text-slate-200 truncate">
-                  {drop.item.name}
-                  {drop.item.reqLevel > 0 && (
-                    <span className="text-[10px] text-slate-500 ml-1 tabular-nums">
-                      Lv{drop.item.reqLevel}
-                    </span>
-                  )}
+                <span className="min-w-0 flex-1">
+                  <span className="block text-xs text-slate-200 truncate">
+                    {drop.item.name}
+                    {drop.item.reqLevel > 0 && (
+                      <span className="text-[10px] text-slate-500 ml-1 tabular-nums">
+                        Lv{drop.item.reqLevel}
+                      </span>
+                    )}
+                  </span>
+                  <span className="block text-[10px] text-slate-500 tabular-nums">
+                    ×{drop.min}-{drop.max}
+                    {drop.questid > 0 && " · 任务道具"}
+                  </span>
                 </span>
-                <span className="block text-[10px] text-slate-500 tabular-nums">
-                  ×{drop.min}-{drop.max}
-                  {drop.questid > 0 && " · 任务道具"}
-                </span>
-              </span>
+              </button>
+
+              {/* 任务道具不显示（查拍卖没意义），道具名为空的也不行 */}
+              {onSearchPrice && drop.questid <= 0 && drop.item.name.trim() !== "" && (
+                <button
+                  type="button"
+                  onClick={() => onSearchPrice(drop.item.name)}
+                  title="查这件的拍卖价"
+                  className="shrink-0 flex items-center gap-1 px-2 py-0.5 rounded-lg border border-white/10 bg-slate-800/80 text-[11px] text-slate-300 hover:border-amber-400/40 hover:text-amber-300 transition-colors cursor-pointer"
+                >
+                  <Coins className="w-3 h-3" />
+                  查价
+                </button>
+              )}
 
               <span
                 className={`shrink-0 text-xs tabular-nums font-bold ${
@@ -448,7 +510,7 @@ const MobCard: React.FC<{
               >
                 {drop.chanceText}
               </span>
-            </button>
+            </div>
           ))}
         </div>
 

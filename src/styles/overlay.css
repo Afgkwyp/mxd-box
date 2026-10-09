@@ -1021,7 +1021,6 @@ html.ov-enter .tm-panel {
   background: none;
   color: var(--tm-tx);
   font-size: 12px;
-  cursor: pointer;
   text-align: left;
   width: 100%;
   transition: background-color 0.15s;
@@ -1031,6 +1030,40 @@ html.ov-enter .tm-panel {
 }
 .tm-drop-row.hit {
   border-color: color-mix(in srgb, var(--tm-good) 55%, transparent);
+}
+/* 掉落行是「名称区按钮 + 价按钮 + 概率」三个部件：整行不是按钮（按钮里不能套按钮）。
+   名称区占满剩余宽度、点了照旧开图鉴；「价」固定宽度、不换行，名字交给省略号 ——
+   窗口拖到最窄（580px）也不会把名字挤到只剩一两个字。 */
+.tm-drop-row .tm-dr-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.tm-drop-row .tm-dr-price {
+  flex: none;
+  padding: 1px 7px;
+  border: 1px solid var(--tm-line);
+  border-radius: 7px;
+  background: none;
+  color: var(--tm-mu);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+.tm-drop-row .tm-dr-price:hover {
+  color: var(--tm-ac);
+  border-color: var(--tm-ac);
 }
 .tm-chip {
   padding: 2px 9px;
