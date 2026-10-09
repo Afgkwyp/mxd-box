@@ -56,13 +56,15 @@ export const MarketSearch: React.FC<{
   /** 查价关键词历史：两个入口（主窗 + 悬浮窗）共用同一份 localStorage */
   const history = useQueryHistory();
 
-  const handleSearch = async (forceRefresh = false, override?: string) => {
+  const handleSearch = async (forceRefresh = false, override?: string, fromSeed = false) => {
     // 下拉选中时带着那个词来查：不能等 setKeyword 再读 state（异步刷新
     // 拿到的还是旧词），所以提交函数要能吃一个显式的词。
     const term = (override ?? keyword).trim();
     if (!term) return;
-    // 查询中就别再发了：站点限流的风控是真实存在的，连按回车就是连着几个请求
-    if (loading) return;
+    // 查询中就别再发了：站点限流的风控是真实存在的，连按回车就是连着几个请求。
+    // 联动进来的 seed 是用户明确点的一次查询，不能因为上一单还在跑就被 loading
+    // 悄悄丢掉（那会停在「输入框是 B、结果是 A」，方案 5.4）—— 让它作废旧单、照发。
+    if (loading && !fromSeed) return;
     const isCurrent = beginRequest();
     setLoading(true);
     setErrorMsg("");
@@ -106,7 +108,7 @@ export const MarketSearch: React.FC<{
     if (!seed?.term || handledSeed.current === seed.nonce) return;
     handledSeed.current = seed.nonce;
     setKeyword(seed.term);
-    void handleSearch(false, seed.term);
+    void handleSearch(false, seed.term, true);
     // 只在「新的一次带词进来」时触发；handleSearch 每次渲染都是新函数，不能放进依赖
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seed?.nonce]);

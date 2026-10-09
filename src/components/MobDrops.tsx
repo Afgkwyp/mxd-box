@@ -68,19 +68,21 @@ export const MobDrops: React.FC<{
   /** 只认最后一次查询的响应，慢的旧响应不许覆盖新结果 */
   const beginRequest = useLatestRequest();
   /**
-   * 联动进来的查询是「输入框显示道具名、实际用道具 ID 查」：翻页时继续沿用
-   * 这个名字，别把 ID 塞回输入框。普通搜索为 null，翻页行为和以前一致。
+   * 联动进来的查询是「输入框显示道具名、实际用道具 ID 查」：结果区文案和翻页
+   * 都沿用这个名字（不露裸 ID）。普通搜索为 null，行为和以前一致。
    */
-  const seedDisplay = useRef<string | null>(null);
+  const [displayTerm, setDisplayTerm] = useState<string | null>(null);
 
-  const search = async (raw: string, nextPage = 1, display?: string) => {
+  const search = async (raw: string, nextPage = 1, display?: string, fromSeed = false) => {
     const target = raw.trim();
     if (!target) {
       setError("请输入怪物名、道具名或 ID");
       return;
     }
-    // 查询中就别再发了：站点限流的风控是真实存在的，回车能绕过按钮的 disabled
-    if (loading) return;
+    // 查询中就别再发了：站点限流的风控是真实存在的，回车能绕过按钮的 disabled。
+    // 联动进来的 seed 是用户明确点的一次查询，不能因为上一单还在跑就被 loading
+    // 悄悄丢掉（那会停在「输入框是 B、结果是 A」，方案 5.4）—— 让它作废旧单、照发。
+    if (loading && !fromSeed) return;
     const isCurrent = beginRequest();
     setLoading(true);
     setError("");
@@ -102,7 +104,7 @@ export const MobDrops: React.FC<{
           : data
       );
       setKeyword(display ?? target);
-      seedDisplay.current = display ?? null;
+      setDisplayTerm(display ?? null);
       setPage(nextPage);
       // 只在新搜索时清空展开状态：翻页（「加载更多」）时用户刚点开的那几只
       // 不该被收回去 —— 查价悬浮窗里就是保留的，两处行为要一致。
@@ -126,7 +128,7 @@ export const MobDrops: React.FC<{
     if (!seed?.term || handledSeed.current === seed.nonce) return;
     handledSeed.current = seed.nonce;
     setKeyword(seed.term);
-    void search(seed.query ?? seed.term, 1, seed.term);
+    void search(seed.query ?? seed.term, 1, seed.term, true);
     // 只在「新的一次带词进来」时触发；search 每次渲染都是新函数，不能放进依赖
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seed?.nonce]);
@@ -142,6 +144,9 @@ export const MobDrops: React.FC<{
 
   const hasHits = (data: DropSearchResult) =>
     data.results.length > 0 || data.matches.items.length > 0 || data.matches.mobs.length > 0;
+
+  /** 结果区文案里的词：联动进来查的是道具名（不露裸 ID），普通查询就是查询词本身 */
+  const shownKeyword = displayTerm ?? result?.meta.keyword ?? "";
 
   return (
     <div className="space-y-5">
@@ -208,7 +213,7 @@ export const MobDrops: React.FC<{
       {result && !hasHits(result) && (
         <div className="p-10 text-center text-slate-500 space-y-2 rounded-xl bg-slate-900/50 border border-white/10">
           <Boxes className="w-10 h-10 mx-auto text-slate-600" />
-          <p className="text-sm">没查到「{result.meta.keyword}」的掉落资料</p>
+          <p className="text-sm">没查到「{shownKeyword}」的掉落资料</p>
           <p className="text-xs text-slate-600">换个说法试试：全名或直接填 ID。</p>
         </div>
       )}
@@ -222,7 +227,7 @@ export const MobDrops: React.FC<{
                 <div className="space-y-1.5">
                   <div className="text-[11px] text-slate-400 flex items-center gap-1.5">
                     <Skull className="w-3.5 h-3.5 text-red-400" />
-                    名字里带「{result.meta.keyword}」的怪物（{result.matches.mobTotal} 只）· 点一下查它的掉落
+                    名字里带「{shownKeyword}」的怪物（{result.matches.mobTotal} 只）· 点一下查它的掉落
                   </div>
                   <div className="flex flex-wrap gap-1.5">
                     {result.matches.mobs.slice(0, 12).map((mob) => (
@@ -257,7 +262,7 @@ export const MobDrops: React.FC<{
                 <div className="space-y-1.5">
                   <div className="text-[11px] text-slate-400 flex items-center gap-1.5">
                     <Package className="w-3.5 h-3.5 text-amber-400" />
-                    名字里带「{result.meta.keyword}」的道具（{result.matches.itemTotal} 件）· 点一下查它从哪掉
+                    名字里带「{shownKeyword}」的道具（{result.matches.itemTotal} 件）· 点一下查它从哪掉
                   </div>
                   <div className="flex flex-wrap gap-1.5">
                     {result.matches.items.slice(0, 12).map((item) => (
@@ -317,7 +322,7 @@ export const MobDrops: React.FC<{
             {result.meta.page < result.meta.totalPages && (
               <button
                 type="button"
-                onClick={() => search(result.meta.keyword, page + 1, seedDisplay.current ?? undefined)}
+                onClick={() => search(result.meta.keyword, page + 1, displayTerm ?? undefined)}
                 disabled={loading}
                 className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-white/10 text-slate-200 font-semibold cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
               >

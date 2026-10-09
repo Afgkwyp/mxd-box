@@ -210,6 +210,8 @@ export const HudView: React.FC = () => {
   const [dropsLoading, setDropsLoading] = useState(false);
   /** 掉落结果的页码（站点一页 12 只怪，搜「蘑菇」有 34 只 → 3 页） */
   const [dropsPage, setDropsPage] = useState(1);
+  /** 掉落结果区文案用的词：联动「谁掉」实际用道具 ID 查，展示仍是道具名（不露裸 ID） */
+  const [dropsDisplay, setDropsDisplay] = useState("");
   const [expandedMobs, setExpandedMobs] = useState<Record<number, boolean>>({});
   const [items, setItems] = useState<MarketItem[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -289,7 +291,7 @@ export const HudView: React.FC = () => {
    * 那几只默认摊开；搜**道具名**（锅盖）→ 一只都不展开，缩略行里已经写着命中那条掉落的概率。
    * `nextPage > 1` 是「加载更多」：新一页**接在后面**而不是把前面的冲掉。
    */
-  const handleSearchDrops = async (nextPage = 1, override?: string) => {
+  const handleSearchDrops = async (nextPage = 1, override?: string, display?: string) => {
     // 显式给的词优先（联动「谁掉」用道具 ID 查更准，见方案 5.1）；翻页要用
     // **当初搜的那个词**，而不是用户可能已经改过的输入框内容。
     const target =
@@ -308,6 +310,8 @@ export const HudView: React.FC = () => {
       setDrops((prev) =>
         nextPage > 1 && prev ? { ...result, results: [...prev.results, ...result.results] } : result,
       );
+      // 结果区文案只在新搜索时更新（翻页沿用当前词）；联动进来时 display 是道具名
+      if (nextPage === 1) setDropsDisplay(display ?? target);
       if (nextPage === 1) setRunId((n) => n + 1);
       const autoExpand = Object.fromEntries(
         result.results
@@ -403,8 +407,8 @@ export const HudView: React.FC = () => {
     if (!peekGuard("search_drops", "掉落速查", COOLDOWN.query)) return;
     switchMode("drop");
     setKeyword(item.name);
-    // 没解析出道具 ID 的条目退回用名字查
-    void handleSearchDrops(1, item.id || item.name);
+    // 没解析出道具 ID 的条目退回用名字查；display 让结果区文案也用道具名
+    void handleSearchDrops(1, item.id || item.name, item.name);
   };
 
   /**
@@ -683,14 +687,14 @@ export const HudView: React.FC = () => {
                 <div className="tm-scroll" key={runId}>
                   <div className="tm-th tm-mono" style={{ justifyContent: "space-between" }}>
                     <span>
-                      「{drops.meta.keyword}」· {drops.meta.total} 只怪 · 命中掉落 {drops.meta.dropTotal} 条
+                      「{dropsDisplay || drops.meta.keyword}」· {drops.meta.total} 只怪 · 命中掉落 {drops.meta.dropTotal} 条
                     </span>
                     {drops.matches.mobs.length > 0 && <span>名字命中 {drops.matches.mobs.length}</span>}
                   </div>
 
                   {drops.results.length === 0 && (
                     <div className="tm-empty">
-                      <span>没查到「{drops.meta.keyword}」的掉落资料</span>
+                      <span>没查到「{dropsDisplay || drops.meta.keyword}」的掉落资料</span>
                       <span style={{ fontSize: 10 }}>换个说法试试：全名或直接填 ID</span>
                     </div>
                   )}
