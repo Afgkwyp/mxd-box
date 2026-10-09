@@ -142,7 +142,10 @@ pub fn run() {
             capture::ensure_dpi_aware();
 
             // 2. Memory Monitor（悬浮窗与顶栏的内存监控都来自这个循环）
-            let memory_monitor = Arc::new(MemoryMonitor::new(settings.memory_threshold));
+            let memory_monitor = Arc::new(MemoryMonitor::new(
+                settings.memory_threshold,
+                settings.memory_alert_enabled,
+            ));
             memory_monitor.start_loop(app.handle().clone());
 
             // 2.5 经验统计。
@@ -260,6 +263,7 @@ pub fn run() {
             get_update_page_url,
             patch_settings,
             set_memory_threshold,
+            set_memory_alert,
             toggle_hud,
             hide_hud,
             show_hud,

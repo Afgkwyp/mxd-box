@@ -957,6 +957,24 @@ pub fn set_memory_threshold(threshold: u32, state: State<'_, AppState>) -> Resul
     Ok(())
 }
 
+/// 开 / 关内存到线提醒（立刻生效；设置页和总览页的两个开关写的是同一个值）。
+///
+/// 独立命令、不塞进 `patch_settings`：它除了写库还要更新 `MemoryMonitor` 里的
+/// 开关和判定状态，和 `set_blacklist_watch` 同类。
+#[tauri::command]
+pub fn set_memory_alert(enabled: bool, state: State<'_, AppState>) -> Result<(), String> {
+    state.memory_monitor.set_alert_enabled(enabled);
+    state
+        .db
+        .set_setting("memory_alert_enabled", if enabled { "1" } else { "0" })
+        .map_err(|e| format!("数据库更新失败: {}", e))?;
+    log::info!(
+        "内存到线提醒：{}",
+        if enabled { "已开启" } else { "已关闭" }
+    );
+    Ok(())
+}
+
 /// 呼出 / 收起**查价悬浮窗**（侧栏按钮和 Alt+F 走的是同一个效果）。
 ///
 /// 窗口操作一律**投递出去**（`thread::spawn`），不在命令函数体里同步做：
