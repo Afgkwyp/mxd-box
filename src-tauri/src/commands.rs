@@ -963,11 +963,15 @@ pub fn set_memory_threshold(threshold: u32, state: State<'_, AppState>) -> Resul
 /// 开关和判定状态，和 `set_blacklist_watch` 同类。
 #[tauri::command]
 pub fn set_memory_alert(enabled: bool, state: State<'_, AppState>) -> Result<(), String> {
-    state.memory_monitor.set_alert_enabled(enabled);
+    // 先写库、成功后才动内存里的开关：写库失败时命令返回 Err，两处界面会把开关
+    // 拨回去 —— 后端这时还没动，前后端才是一致的。反过来先动内存的话，写库失败
+    // 后界面显示「关」而实际还在响（或者显示「开」而实际不响），正是这个开关
+    // 最不该有的状态。
     state
         .db
         .set_setting("memory_alert_enabled", if enabled { "1" } else { "0" })
         .map_err(|e| format!("数据库更新失败: {}", e))?;
+    state.memory_monitor.set_alert_enabled(enabled);
     log::info!(
         "内存到线提醒：{}",
         if enabled { "已开启" } else { "已关闭" }
