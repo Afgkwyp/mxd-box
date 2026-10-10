@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { COOLDOWN, guard } from "../lib/throttle";
 import { 
@@ -12,7 +12,8 @@ import {
   RefreshCw,
   Database,
   History,
-  Info
+  Info,
+  Sword
 } from "lucide-react";
 import type { MarketItem, MarketQueryResult } from "../types";
 import { usePresetServer } from "../lib/presetServer";
@@ -28,7 +29,15 @@ export interface MarketSeed {
   nonce: number;
 }
 
-export const MarketSearch: React.FC<{ seed?: MarketSeed }> = ({ seed }) => {
+export const MarketSearch: React.FC<{
+  seed?: MarketSeed;
+  /**
+   * 点结果卡片的「谁掉」：把词交给查询页去切到掉落页签。
+   * `itemId` 是更准的查询词（用道具 ID 查不掉错别的东西，见方案 5.1），
+   * 展示仍用 `term`；没解析出 ID 时为 undefined。
+   */
+  onSearchDrops?: (term: string, itemId?: string) => void;
+}> = ({ seed, onSearchDrops }) => {
   const [keyword, setKeyword] = useState("");
   // 全局预设区服：换服会写回数据库并广播，悬窗也跟着切（不再每开一个窗口都要选一次）
   const { serverId, servers, chooseServer } = usePresetServer();
@@ -47,13 +56,15 @@ export const MarketSearch: React.FC<{ seed?: MarketSeed }> = ({ seed }) => {
   /** 查价关键词历史：两个入口（主窗 + 悬浮窗）共用同一份 localStorage */
   const history = useQueryHistory();
 
-  const handleSearch = async (forceRefresh = false, override?: string) => {
+  const handleSearch = async (forceRefresh = false, override?: string, fromSeed = false) => {
     // 下拉选中时带着那个词来查：不能等 setKeyword 再读 state（异步刷新
     // 拿到的还是旧词），所以提交函数要能吃一个显式的词。
     const term = (override ?? keyword).trim();
     if (!term) return;
-    // 查询中就别再发了：站点限流的风控是真实存在的，连按回车就是连着几个请求
-    if (loading) return;
+    // 查询中就别再发了：站点限流的风控是真实存在的，连按回车就是连着几个请求。
+    // 联动进来的 seed 是用户明确点的一次查询，不能因为上一单还在跑就被 loading
+    // 悄悄丢掉（那会停在「输入框是 B、结果是 A」，方案 5.4）—— 让它作废旧单、照发。
+    if (loading && !fromSeed) return;
     const isCurrent = beginRequest();
     setLoading(true);
     setErrorMsg("");
@@ -83,10 +94,21 @@ export const MarketSearch: React.FC<{ seed?: MarketSeed }> = ({ seed }) => {
     }
   };
 
+  /**
+   * 已经处理过的 seed nonce：同一个 nonce 只查一次。
+   *
+   * 开发模式的 StrictMode 会把**挂载时**的 effect 跑两遍：第二遍会被冷却 `guard`
+   * 拦下（弹一条假的「太频繁」），还顺手作废第一遍的响应（`beginRequest` 已推进
+   * 序号）—— 表现是「点了最近查价，输入框有词、结果空着」。用 ref 去重没这回事
+   * （ref 在 StrictMode 的重跑之间保留）。生产构建 effect 只跑一遍，这里是保险。
+   */
+  const handledSeed = useRef(0);
+
   useEffect(() => {
-    if (!seed?.term) return;
+    if (!seed?.term || handledSeed.current === seed.nonce) return;
+    handledSeed.current = seed.nonce;
     setKeyword(seed.term);
-    void handleSearch(false, seed.term);
+    void handleSearch(false, seed.term, true);
     // 只在「新的一次带词进来」时触发；handleSearch 每次渲染都是新函数，不能放进依赖
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seed?.nonce]);
@@ -316,20 +338,32 @@ export const MarketSearch: React.FC<{ seed?: MarketSeed }> = ({ seed }) => {
               <span className="text-[10px] text-slate-500 truncate">
                 {itemDetail.details[item.id]?.sell_price || item.category || ""}
               </span>
-              <button
-                type="button"
-                onClick={() => itemDetail.toggle(item.id)}
-                disabled={!item.id || itemDetail.loadingId === item.id}
-                title="小册子道具图鉴：基准属性与 NPC 售价"
-                className="shrink-0 flex items-center gap-1 rounded-lg border border-white/10 bg-slate-800/80 px-2.5 py-1 text-xs text-slate-300 hover:border-amber-400/40 hover:text-amber-300 disabled:opacity-50 transition-colors cursor-pointer"
-              >
-                <Info className="w-3 h-3" />
-                {itemDetail.loadingId === item.id
-                  ? "读取中..."
-                  : itemDetail.openId === item.id
-                    ? "收起详情"
-                    : "物品详情"}
-              </button>
+              <div className="shrink-0 flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => onSearchDrops?.(item.name, item.id || undefined)}
+                  disabled={!item.id || !onSearchDrops}
+                  title="查哪只怪掉这件"
+                  className="flex items-center gap-1 rounded-lg border border-white/10 bg-slate-800/80 px-2.5 py-1 text-xs text-slate-300 hover:border-amber-400/40 hover:text-amber-300 disabled:opacity-50 transition-colors cursor-pointer"
+                >
+                  <Sword className="w-3 h-3" />
+                  谁掉
+                </button>
+                <button
+                  type="button"
+                  onClick={() => itemDetail.toggle(item.id)}
+                  disabled={!item.id || itemDetail.loadingId === item.id}
+                  title="小册子道具图鉴：基准属性与 NPC 售价"
+                  className="shrink-0 flex items-center gap-1 rounded-lg border border-white/10 bg-slate-800/80 px-2.5 py-1 text-xs text-slate-300 hover:border-amber-400/40 hover:text-amber-300 disabled:opacity-50 transition-colors cursor-pointer"
+                >
+                  <Info className="w-3 h-3" />
+                  {itemDetail.loadingId === item.id
+                    ? "读取中..."
+                    : itemDetail.openId === item.id
+                      ? "收起详情"
+                      : "物品详情"}
+                </button>
+              </div>
             </div>
 
             {itemDetail.openId === item.id && (

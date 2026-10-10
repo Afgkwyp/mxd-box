@@ -45,17 +45,11 @@ export const COOLDOWN = {
   mutate: 3,
 } as const;
 
-/**
- * 过一道闸：能发就返回 `true`，冷却期里返回 `false` 并广播提示。
- *
- * ```ts
- * if (!guard("query_market", "拍卖查询", COOLDOWN.query)) return;
- * ```
- */
-export function guard(
+function check(
   key: string,
   label: string,
-  seconds: number = COOLDOWN.query,
+  seconds: number,
+  consume: boolean,
 ): boolean {
   const now = Date.now();
   const last = lastFiredAt.get(key);
@@ -68,8 +62,39 @@ export function guard(
       return false;
     }
   }
-  lastFiredAt.set(key, now);
+  if (consume) lastFiredAt.set(key, now);
   return true;
+}
+
+/**
+ * 过一道闸：能发就返回 `true`，冷却期里返回 `false` 并广播提示。
+ *
+ * ```ts
+ * if (!guard("query_market", "拍卖查询", COOLDOWN.query)) return;
+ * ```
+ */
+export function guard(
+  key: string,
+  label: string,
+  seconds: number = COOLDOWN.query,
+): boolean {
+  return check(key, label, seconds, true);
+}
+
+/**
+ * 只问不占：冷却期里一样广播提示，但**不消费**这次冷却。
+ *
+ * 给「先过闸、再跳界面」的联动按钮用（掉落 ⇄ 查价）：闸没过就原地不动、
+ * 只弹提示；过了才切页签 / 换模式，真正的冷却留给随后那个查询函数自己过
+ * [`guard`]。直接调 `guard` 会把这个窗口占掉，紧跟其后的真实查询反而会被它
+ * 拦下 —— 联动按钮和查询不在一个组件里，只能先问一声。
+ */
+export function peekGuard(
+  key: string,
+  label: string,
+  seconds: number = COOLDOWN.query,
+): boolean {
+  return check(key, label, seconds, false);
 }
 
 /**

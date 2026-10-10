@@ -1730,13 +1730,18 @@ mod tests {
     }
 
     /// 手工用例（`cargo test --lib probe_live_drops -- --ignored --nocapture`）：
-    /// 对着真实接口跑三种关键词（道具名 / 怪物名 / ID），确认字段没变。只打摘要日志。
+    /// 对着真实接口跑几种关键词（道具名 / 怪物名 / 怪物 ID / **道具 ID**）确认字段没变，并回答
+    /// 方案 5.1 的问题：纯数字的道具 ID 会不会被当成怪物 ID、或两边都命中。
+    ///
+    /// 「谁掉」用 ID 还是用名字就按这里的输出定：道具 ID 的结果必须**只包含掉这件道具的怪**
+    /// （`命中道具` 里只有它自己、每只怪的「命中」条数为 1）。只打摘要日志。
     #[test]
     #[ignore]
     fn probe_live_drops() {
         let client = MxdcClient::new();
         tauri::async_runtime::block_on(async {
-            for keyword in ["锅盖", "绿蘑菇", "无魂猴", "1110100"] {
+            // 1092008 锅盖 / 2000000 红色药水 / 4000012 绿蘑菇盖：三个已知道具 ID
+            for keyword in ["锅盖", "绿蘑菇", "无魂猴", "1110100", "1092008", "2000000", "4000012"] {
                 match client.search_drops(keyword, 1).await {
                     Ok(result) => {
                         println!(
@@ -1747,14 +1752,25 @@ mod tests {
                             result.matches.mobs.len(),
                             result.matches.items.len()
                         );
+                        let matched_items: Vec<String> = result
+                            .matches
+                            .items
+                            .iter()
+                            .map(|item| format!("{}({})", item.name, item.item_id))
+                            .collect();
+                        if !matched_items.is_empty() {
+                            println!("  命中道具: {}", matched_items.join(", "));
+                        }
                         for hit in result.results.iter().take(3) {
+                            let matched_count = hit.drops.iter().filter(|drop| drop.matched).count();
                             println!(
-                                "  {} Lv{} HP{} EXP{} · 掉落 {} 条 · 地图 {} 个",
+                                "  {} Lv{} HP{} EXP{} · 掉落 {} 条（命中 {}）· 地图 {} 个",
                                 hit.mob.name,
                                 hit.mob.level,
                                 hit.mob.hp,
                                 hit.mob.exp,
                                 hit.drops.len(),
+                                matched_count,
                                 hit.maps.len()
                             );
                             for drop in hit.drops.iter().take(4) {
