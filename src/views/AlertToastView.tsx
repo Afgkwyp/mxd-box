@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { BellRing, Coins, ExternalLink, Rocket, ShieldAlert, X } from "lucide-react";
+import { BellRing, Coins, Cpu, ExternalLink, Rocket, ShieldAlert, X } from "lucide-react";
 import type { AlertPayload } from "../types";
 
 /**
@@ -50,9 +50,10 @@ export const AlertToastView: React.FC = () => {
   };
 
   const isTest = payload?.source === "test";
-  // 四类提醒共用一个窗：测试 / 开服 / 剪贴板命中黑名单 / 金价到价
+  // 五类提醒共用一个窗：测试 / 开服 / 剪贴板命中黑名单 / 金价到价 / 内存到线
   const isBlacklist = payload?.source === "clipboard";
   const isMeso = payload?.source === "meso";
+  const isMemory = payload?.source === "memory";
 
   return (
     <div className="h-full w-full p-2">
@@ -74,6 +75,8 @@ export const AlertToastView: React.FC = () => {
               <ShieldAlert className="w-4 h-4 text-red-300" />
             ) : isMeso ? (
               <Coins className="w-4 h-4 text-amber-300" />
+            ) : isMemory ? (
+              <Cpu className="w-4 h-4 text-amber-300" />
             ) : (
               <Rocket className="w-4 h-4 text-amber-300" />
             )}

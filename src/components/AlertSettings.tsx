@@ -67,8 +67,8 @@ export const AlertSettings: React.FC = () => {
           <MesoAlertCard />
 
           <div className="p-4 rounded-xl bg-slate-900/40 border border-white/5 text-[11px] text-slate-400 leading-relaxed">
-            两种提醒走同一个出口：响铃、任务栏闪烁、右下角弹窗。点「测试开服提醒」能听到、能看到，
-            就说明真开服、金价到价时一定会提醒你。
+            所有提醒走同一个出口：响铃、任务栏闪烁、右下角弹窗。点「测试开服提醒」能听到、能看到，
+            就说明开服、金价到价、内存到线、黑名单命中时一定会提醒你。
           </div>
         </div>
       )}

@@ -1,7 +1,9 @@
 //! 提醒的「出口」：响铃 + 任务栏闪烁 + 我们自己的置顶弹窗。
 //!
-//! 三类内容共用响铃与提醒窗：开服恢复、剪贴板命中黑名单、关注物品跌破价格阈值；
-//! 各自冷却，避免其中一种事件吞掉另一种真正需要用户处理的提醒。
+//! 四类内容共用响铃与提醒窗：开服恢复、剪贴板命中黑名单、金价到价、内存到线
+//! （设置页的测试按钮也走同一条出口）。开服与剪贴板各有一个冷却，金价与内存的
+//! 节流放在各自的判定函数里（见 `meso_alert.rs` / `memory.rs`）—— 避免其中一种
+//! 事件吞掉另一种真正需要用户处理的提醒。
 //!
 //! ## 为什么不靠 Windows 原生通知
 //!
@@ -62,6 +64,8 @@ pub enum AlertSource {
     Clipboard,
     /// 预设区服的金价到了设定的价位（见 `meso_alert.rs`）
     MesoPrice,
+    /// 物理内存占用到了警戒线（见 `memory.rs`）
+    Memory,
 }
 
 impl AlertSource {
@@ -71,6 +75,7 @@ impl AlertSource {
             AlertSource::Test => "test",
             AlertSource::Clipboard => "clipboard",
             AlertSource::MesoPrice => "meso",
+            AlertSource::Memory => "memory",
         }
     }
 
@@ -80,6 +85,7 @@ impl AlertSource {
             AlertSource::Test => "测试提醒",
             AlertSource::Clipboard => "剪贴板比对黑名单",
             AlertSource::MesoPrice => "金价到价提醒",
+            AlertSource::Memory => "内存到线提醒",
         }
     }
 
@@ -89,6 +95,7 @@ impl AlertSource {
             AlertSource::Clipboard => "⚠️ 这个角色在黑名单里",
             AlertSource::Monitor => "🎉 冒险岛怀旧服已开服！",
             AlertSource::MesoPrice => "💰 金价到了你设的价位",
+            AlertSource::Memory => "⚠️ 内存占用到线了",
         }
     }
 }
@@ -101,7 +108,7 @@ pub struct AlertPayload {
     pub body: String,
     /// 触发时刻，本地 `HH:MM:SS`
     pub at: String,
-    /// "monitor" / "test" / "clipboard"
+    /// "monitor" / "test" / "clipboard" / "meso" / "memory"
     pub source: String,
     /// 来源的中文说法
     pub source_label: String,
@@ -169,6 +176,16 @@ pub fn fire_open_alert_force(app: &AppHandle, source: AlertSource, body: String)
 pub fn fire_meso_alert(app: &AppHandle, body: String) {
     record_alert_history(app, "meso_price", AlertSource::MesoPrice.title(), &body);
     dispatch(app, AlertSource::MesoPrice, body);
+}
+
+/// 内存到线提醒。
+///
+/// 同样不走开服提醒那个十分钟冷却：要不要响由 `memory::decide` 决定（连续 30 秒
+/// 在线上才响、回落 5 个百分点才重新上膛、两次至少隔 10 分钟），两件事共用一个
+/// 冷却只会互相吃掉。
+pub fn fire_memory_alert(app: &AppHandle, body: String) {
+    record_alert_history(app, "memory_high", AlertSource::Memory.title(), &body);
+    dispatch(app, AlertSource::Memory, body);
 }
 
 /// 冷却闸门：不在冷却期内就占下这个位置。

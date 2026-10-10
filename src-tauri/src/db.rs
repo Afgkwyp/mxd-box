@@ -137,6 +137,14 @@ pub struct ExpCurvePoint {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppSettings {
     pub memory_threshold: u32,
+    /// 内存占用到了警戒线时，响铃 + 弹提醒窗（见 `memory.rs`）。
+    ///
+    /// **默认开启**：这个功能的价值就在「不用自己想起来看」，默认关的话多数
+    /// 人不会知道有它。只在游戏开着时提醒，且要连续 30 秒在线上、两次至少隔
+    /// 10 分钟，所以不会吵。想关的时候在「设置 → 悬浮窗与内存」或总览页
+    /// 「提醒」卡片里拨掉。
+    #[serde(default = "default_true")]
+    pub memory_alert_enabled: bool,
     /// 呼出 / 收起**查价悬浮窗**的全局快捷键（按压捕获，默认 `Alt+F`）
     #[serde(default = "default_price_hud_hotkey")]
     pub hotkey: String,
@@ -187,6 +195,7 @@ impl Default for AppSettings {
     fn default() -> Self {
         Self {
             memory_threshold: 85,
+            memory_alert_enabled: true,
             hotkey: default_price_hud_hotkey(),
             lite_float_hotkey: default_lite_float_hotkey(),
             default_server_id: default_server_id(),
@@ -485,6 +494,9 @@ impl Database {
             if let Ok(n) = v.parse() {
                 settings.memory_threshold = n;
             }
+        }
+        if let Some(v) = self.get_setting("memory_alert_enabled") {
+            settings.memory_alert_enabled = v == "true" || v == "1";
         }
         if let Some(v) = self.get_setting("hotkey") {
             let trimmed = v.trim();

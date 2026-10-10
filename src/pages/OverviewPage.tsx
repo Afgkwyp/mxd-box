@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { BellRing, Monitor, Pause, Play, RefreshCw, ShieldAlert, Square, Wand2 } from "lucide-react";
+import { BellRing, Cpu, Monitor, Pause, Play, RefreshCw, ShieldAlert, Square, Wand2 } from "lucide-react";
 import type { AppSettings, ServerMonitorStatus } from "../types";
 import { Panel, Switch, Kbd } from "../components/ui/kit";
 import { usePresetServer } from "../lib/presetServer";
@@ -115,6 +115,7 @@ export const OverviewPage: React.FC<Props> = ({ onNavigate, monitor }) => {
   // ---- 提醒开关（读真实设置，改完立刻写）----
   const [monitorOn, setMonitorOn] = useState<boolean | null>(null);
   const [watchOn, setWatchOn] = useState<boolean | null>(null);
+  const [memoryAlertOn, setMemoryAlertOn] = useState<boolean | null>(null);
   // ---- 偏好开关：和设置页是同一份（那边有完整说明，这里是顺手能拨的入口）----
   const [trayOn, setTrayOn] = useState<boolean | null>(null);
   const [motion, setMotion] = useMotion();
@@ -123,6 +124,7 @@ export const OverviewPage: React.FC<Props> = ({ onNavigate, monitor }) => {
       .then((s) => {
         setMonitorOn(s.monitor_enabled);
         setWatchOn(s.blacklist_watch);
+        setMemoryAlertOn(s.memory_alert_enabled);
         setTrayOn(s.close_to_tray);
       })
       .catch(() => {});
@@ -138,6 +140,10 @@ export const OverviewPage: React.FC<Props> = ({ onNavigate, monitor }) => {
   const changeWatch = (value: boolean) => {
     setWatchOn(value);
     invoke("set_blacklist_watch", { enabled: value }).catch(() => setWatchOn(!value));
+  };
+  const changeMemoryAlert = (value: boolean) => {
+    setMemoryAlertOn(value);
+    invoke("set_memory_alert", { enabled: value }).catch(() => setMemoryAlertOn(!value));
   };
 
   // ---- 最近查价 ----
@@ -377,6 +383,18 @@ export const OverviewPage: React.FC<Props> = ({ onNavigate, monitor }) => {
               黑名单命中
             </span>
             <Switch checked={!!watchOn} disabled={watchOn === null} onChange={changeWatch} label="黑名单命中提醒" />
+          </div>
+          <div className="flex items-center justify-between gap-3">
+            <span className="flex items-center gap-2">
+              <Cpu className="w-4 h-4 text-amber-400" />
+              内存到线
+            </span>
+            <Switch
+              checked={!!memoryAlertOn}
+              disabled={memoryAlertOn === null}
+              onChange={changeMemoryAlert}
+              label="内存到线提醒"
+            />
           </div>
           <div className="text-[11px] text-slate-500 leading-relaxed" title={monitorSummary.tooltip}>
             官方开服：{monitorSummary.text}
