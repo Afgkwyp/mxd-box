@@ -8,6 +8,8 @@
 > - 掉落 ⇄ 查价联动 → [`docs/specs/drop-price-link.md`](specs/drop-price-link.md)
 > - 内存到线提醒 → [`docs/specs/memory-alert.md`](specs/memory-alert.md)
 
+> **2026-10-10 再更新**：上面两项已开发完成并合并。下一批做什么的讨论稿（含对本清单剩余 13 项的重排和 7 项新想法）见 [`docs/NEXT_FEATURES.md`](NEXT_FEATURES.md)。
+
 ## 怎么读这份文档
 
 - **第一部分**是现状：现在有什么、入口在哪个文件，以及游戏版本的核对结果。
