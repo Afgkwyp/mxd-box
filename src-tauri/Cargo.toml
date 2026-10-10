@@ -1,6 +1,6 @@
 [package]
 name = "mxd_box"
-version = "0.2.0"
+version = "0.2.1"
 description = "枫之助 · 冒险岛怀旧服小助手"
 authors = ["mxd-box"]
 license = "MIT"
