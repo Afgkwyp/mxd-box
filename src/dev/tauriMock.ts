@@ -24,6 +24,20 @@ let activeSecs = 2538;
 // `goal=190` 带一个练级目标进来；页面上改了也记在这里
 let goalLevel: number | null = params.get("goal") ? Number(params.get("goal")) : null;
 let mesoAlert = { enabled: false, above: null as number | null, below: null as number | null };
+/** 设置页 / 总览页读写的同一份设置（拨开关后切页能看到改后的状态） */
+const appSettings = {
+  memory_threshold: 85,
+  memory_alert_enabled: true,
+  hotkey: "Alt+F",
+  lite_float_hotkey: "F10",
+  exp_hotkey: "Ctrl+Alt+P",
+  default_server_id: 2,
+  monitor_enabled: true,
+  monitor_interval_sec: 30,
+  auth_cookie: "",
+  close_to_tray: true,
+  blacklist_watch: true,
+};
 let gained = 18_350_000;
 // 「结束本段」之后等用户确认的那一段（看分享卡片的入口要它）
 let pending: unknown = null;
@@ -197,18 +211,8 @@ let historyRows = [
 ];
 
 const handlers: Record<string, (args: any) => unknown> = {
-  get_settings: () => ({
-    memory_threshold: 85,
-    hotkey: "Alt+F",
-    lite_float_hotkey: "F10",
-    exp_hotkey: "Ctrl+Alt+P",
-    default_server_id: 2,
-    monitor_enabled: true,
-    monitor_interval_sec: 30,
-    auth_cookie: "",
-    close_to_tray: true,
-    blacklist_watch: true,
-  }),
+  get_settings: () => appSettings,
+  set_memory_alert: ({ enabled }: any) => ((appSettings.memory_alert_enabled = enabled), null),
   get_server_list: () => servers,
   get_exp_status: () => expStatus(),
   set_exp_goal: ({ level }: any) => ((goalLevel = level ?? null), expStatus()),

@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { Cpu, Keyboard, Layers, AlertTriangle } from "lucide-react";
 import { HotkeyInput } from "./HotkeyInput";
 import { InlineNotice, type Notice } from "./Notice";
+import { Switch } from "./ui/kit";
 import type { AppSettings, HotkeyStatus } from "../types";
 
 /**
@@ -74,6 +75,20 @@ export const FloatSettings: React.FC = () => {
   };
 
   /**
+   * 内存到线提醒开关：改完立刻生效。失败时把界面拨回去并报错 ——
+   * 拨了却没保存上，用户以为开着、实际不会响，比看到一条错误提示更糟。
+   */
+  const handleMemoryAlertChange = (value: boolean) => {
+    if (!settings) return;
+    const previous = settings.memory_alert_enabled;
+    setSettings({ ...settings, memory_alert_enabled: value });
+    invoke("set_memory_alert", { enabled: value }).catch((err: unknown) => {
+      setSettings((prev) => (prev ? { ...prev, memory_alert_enabled: previous } : prev));
+      setNotice({ kind: "error", message: `保存内存到线提醒开关失败：${err}` });
+    });
+  };
+
+  /**
    * 换快捷键：**立刻**重注册并回显结果。
    *
    * 这是修掉「改了键没反应」那类困惑的关键一步：注册成败当场可见。
@@ -126,7 +141,7 @@ export const FloatSettings: React.FC = () => {
             物理内存警戒阈值
           </div>
           <p className="text-xs text-slate-400 leading-relaxed">
-            内存占用到这个比例时，主窗口侧栏与悬浮窗里的内存显示会变红，提醒你进商城刷新内存。
+            内存占用到这个比例时显示变红；打开下面的开关，还会响铃并弹窗提醒。
           </p>
 
           {settings ? (
@@ -154,6 +169,14 @@ export const FloatSettings: React.FC = () => {
                 <span>50% (极敏感)</span>
                 <span>85% (推荐默认)</span>
                 <span>95% (极度吃紧)</span>
+              </div>
+              <div className="flex items-center justify-between pt-2 border-t border-white/5">
+                <span className="text-xs text-slate-400">到线时提醒</span>
+                <Switch
+                  checked={settings.memory_alert_enabled}
+                  onChange={handleMemoryAlertChange}
+                  label="到线时提醒"
+                />
               </div>
             </div>
           ) : (

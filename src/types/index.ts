@@ -103,7 +103,7 @@ export interface AlertPayload {
   body: string;
   /** 触发时刻，例如 "11:16:01" */
   at: string;
-  /** "monitor"（开服监控）/ "test"（测试按钮）/ "clipboard"（黑名单命中）/ "meso"（金价到价） */
+  /** "monitor"（开服监控）/ "test"（测试按钮）/ "clipboard"（黑名单命中）/ "meso"（金价到价）/ "memory"（内存到线） */
   source: string;
   source_label: string;
 }
@@ -310,6 +310,8 @@ export interface BlacklistVerdict {
 
 export interface AppSettings {
   memory_threshold: number;
+  /** 内存占用到了警戒线时响铃 + 弹提醒窗（默认开；只在游戏开着时提醒） */
+  memory_alert_enabled: boolean;
   /** 呼出 / 收起**查价悬浮窗**的全局快捷键（默认 Alt+F） */
   hotkey: string;
   /** 呼出 / 收起**精简悬浮窗**（金价 + 内存 + 经验）的全局快捷键（默认 F10） */
@@ -619,7 +621,7 @@ export interface ExpCurvePoint {
   level: number | null;
 }
 
-/** 提醒历史的一行（alert_history 表）。kind: server_open / blacklist_hit / monitor / test */
+/** 提醒历史的一行（alert_history 表）。kind: server_open / blacklist_hit / meso_price / memory_high */
 export interface AlertHistoryRow {
   id: number;
   kind: string;
