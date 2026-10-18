@@ -18,7 +18,7 @@ import { MesoConverter } from "./MesoConverter";
 import { Panel, SubTabs } from "./ui/kit";
 
 /** 与站点区服表一一对应，保证折线颜色稳定 */
-const SERVER_COLORS = ["#f59e0b", "#10b981", "#3b82f6", "#ec4899", "#8b5cf6"];
+const SERVER_COLORS = ["#f59e0b", "#10b981", "#3b82f6", "#ec4899", "#8b5cf6", "#14b8a6"];
 
 /** 金价数字：变化时滚过去，首次从 0 滚起。 */
 const RateNumber: React.FC<{ value: string; digits?: number }> = ({ value, digits = 2 }) => {

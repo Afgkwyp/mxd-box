@@ -8,24 +8,27 @@ use std::time::Duration;
 
 /// 小册子真实的区服表。
 ///
-/// 站点上只有这 5 个服，拍卖工具的 `server` 参数就是这里的 `id`（1..5）。
+/// 站上现在是这 6 个服，拍卖工具的 `server` 参数就是这里的 `id`（1..6）：
+/// `6 = 红螃蟹`（2026-10-17 对着站点拍卖下拉和 boss-timer 的
+/// `data-server="6"` 实测核对）。
 /// 注意：**没有「全服」这个概念** —— 不传 `server` 时服务端只会回蓝蜗牛。
 /// 之前 UI 里虚构了一个 `1 => 全服`，既漏掉了蓝蜗牛，又让「全服综合比价」
 /// 实际上一直在查蓝蜗牛。
 ///
 /// 这份清单是唯一数据源：前端通过 `get_server_list` 命令拿，Rust 侧直接用。
-pub const SERVERS: [(u32, &str); 5] = [
+pub const SERVERS: [(u32, &str); 6] = [
     (1, "蓝蜗牛"),
     (2, "蘑菇仔"),
     (3, "绿水灵"),
     (4, "漂漂猪"),
     (5, "小白兔"),
+    (6, "红螃蟹"),
 ];
 
 /// 合法区服 id。保存「全局预设区服」时拿它校验：
 /// 不校验的话，界面上存进一个不存在的 id，之后每次查询都只会静默返回空结果，
 /// 看起来却像「站上没有这个道具」。
-pub const SERVER_IDS: [u32; 5] = [1, 2, 3, 4, 5];
+pub const SERVER_IDS: [u32; 6] = [1, 2, 3, 4, 5, 6];
 
 const MARKET_URL: &str = "https://mxdc.dvg.cn/tools/market/";
 const PRICE_TREND_URL: &str = "https://mxdc.dvg.cn/tools/price-trend/";
@@ -1412,9 +1415,10 @@ mod tests {
                 (3, "绿水灵"),
                 (4, "漂漂猪"),
                 (5, "小白兔"),
+                (6, "红螃蟹"),
             ]
         );
-        assert_eq!(server_list().len(), 5);
+        assert_eq!(server_list().len(), 6);
     }
 
     #[test]

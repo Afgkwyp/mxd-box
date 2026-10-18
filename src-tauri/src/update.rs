@@ -1088,6 +1088,10 @@ mod tests {
         assert!(info.error.is_none(), "读失败：{:?}", info.error);
         assert_eq!(info.source, "quark");
         assert!(info.latest.is_some(), "没读出最新版本号");
-        log::info!("夸克分享上的版本：{:?}", info.latest);
+        // 用 println：测试里没装日志输出，log::info! 打不出来，发版后想看一眼读到的是哪一版
+        println!(
+            "夸克分享上的版本：{:?}（本机 {}，有更新 = {}）",
+            info.latest, info.current, info.has_update
+        );
     }
 }
