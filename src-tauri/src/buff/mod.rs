@@ -61,6 +61,8 @@ const MIN_ICON: u32 = 12;
 const MAX_ICON: u32 = 128;
 /// 最多几个 BUFF。
 const MAX_ITEMS: usize = 12;
+/// 剩几秒时提醒「即将结束」。固定值，不再让用户改；`BuffItem::threshold` 只为兼容老设置保留，不再读。
+const REMIND_AT: u32 = 10;
 
 fn default_true() -> bool {
     true
@@ -346,7 +348,7 @@ fn status_of(tracked: &[Tracked], now: f64, running: bool, note: String) -> Buff
                 nearing: t
                     .timer
                     .remaining_upper(now)
-                    .is_some_and(|upper| upper <= t.item.threshold as f64),
+                    .is_some_and(|upper| upper <= REMIND_AT as f64),
             })
             .collect(),
     }
@@ -528,7 +530,7 @@ fn run(app: AppHandle) {
             let reading = hit.and_then(|h| scale::read_at(&pic, &h));
             t.last_hit = hit;
             t.timer.observe(now, hit.is_some(), reading.map(|r| (r.value, r.unit)));
-            if let Some(reminder) = t.timer.reminder(now, t.item.threshold, t.item.expire_alert) {
+            if let Some(reminder) = t.timer.reminder(now, REMIND_AT, t.item.expire_alert) {
                 announce(&t.item, reminder, &config);
             }
         }
