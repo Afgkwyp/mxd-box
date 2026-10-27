@@ -1,5 +1,6 @@
 mod alert;
 mod blacklist;
+mod buff;
 mod channel;
 mod clip_image;
 mod commands;
@@ -253,6 +254,9 @@ pub fn run() {
             // 9. 金价到价提醒：开着才每 10 分钟看一眼报价，没开什么请求都不发。
             meso_alert::spawn(app.handle().clone());
 
+            // 10. BUFF 到期提醒：没开 / 没有 BUFF 时线程只空转，不抓画面。
+            buff::spawn(app.handle().clone());
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -337,6 +341,15 @@ pub fn run() {
             delete_exp_character,
             save_share_card,
             copy_share_card,
+            buff::get_buff_config,
+            buff::save_buff_config,
+            buff::get_buff_status,
+            buff::buff_capture_frame,
+            buff::add_buff_from_frame,
+            buff::list_buff_skills,
+            buff::add_buff_from_skill,
+            buff::delete_buff,
+            buff::test_buff_speech,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

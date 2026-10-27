@@ -9,6 +9,7 @@ import { ChannelBadge } from "../components/ChannelBadge";
 import { ResizeHandles, useEnterAnimation, useWindowDrag, useWindowSize } from "../components/WindowFrame";
 import { useTween } from "../lib/useTween";
 import { gameAway, gameAwayText } from "../lib/expRead";
+import { useBuffStatus } from "../lib/buffStatus";
 
 /**
  * **经验窗**（`float` 窗口，全局快捷键默认 F10，切换式显示 / 收起）。
@@ -45,6 +46,7 @@ const STRIP_BELOW = 92;
 
 export const FloatView: React.FC = () => {
   const memory = useMemorySample();
+  const buffStatus = useBuffStatus();
   const { exp, busy, actionError, toggle: toggleSession, end, resolve: resolveSession } = useExpSession();
   const [tiny, setTiny] = useState(() => window.innerHeight < STRIP_BELOW);
   /** 收起成单行条之前的窗口高度，展开时回到它 */
@@ -134,6 +136,9 @@ export const FloatView: React.FC = () => {
   const lvText = level != null ? `Lv.${level}` : "Lv.—";
   const pctText = percent != null ? `${percent.toFixed(2)}%` : "";
   const timer = formatStopwatch(session?.active_secs ?? 0);
+  const buffs = (buffStatus?.running ? buffStatus.items : []).filter(
+    (buff) => buff.presence === "present" && (buff.seconds != null || buff.minutes != null),
+  );
 
   const playIcon = running ? <Pause size={14} /> : <Play size={14} />;
   const playTitle = running ? "暂停统计" : paused ? "继续统计" : "开始统计";
@@ -323,6 +328,20 @@ export const FloatView: React.FC = () => {
                   : `差 ${joinBig(goal.remaining_exp)}`}
               </span>
             )}
+            {/* BUFF 提醒：在身上、读到了秒数的才占地方；进入提醒阈值变色 */}
+            {buffs.map((buff) => (
+              <span
+                key={buff.id}
+                title={
+                  buff.minutes != null
+                    ? `${buff.name}：剩 ${buff.minutes} 分多`
+                    : `${buff.name}：剩 ${buff.seconds} 秒${buff.established ? "" : "（核对中）"}`
+                }
+                style={buff.nearing ? { color: "var(--ui-ac)", fontWeight: 700 } : undefined}
+              >
+                {buff.name} {buff.minutes != null ? `${buff.minutes}m+` : `${buff.seconds}s`}
+              </span>
+            ))}
             {exp?.quality != null && exp.quality.grade < 2 && (
               <span
                 title={exp.quality.reason}

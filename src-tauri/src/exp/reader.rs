@@ -767,6 +767,8 @@ impl ExpReader {
     ) -> Option<HudLayout> {
         if let Some((cached_w, cached_h, layout)) = self.hud_layout {
             if cached_w == client_w && cached_h == client_h {
+                // 缓存命中也要把倍数再告诉 BUFF（几乎不花钱，只是一次加锁写入）
+                crate::buff::note_hud_scale(client_w, client_h, (layout.anchor.sx + layout.anchor.sy) / 2.0);
                 return Some(layout);
             }
         }
@@ -805,6 +807,7 @@ impl ExpReader {
             layout.exp_bar.2,
             layout.exp_bar.3
         );
+        crate::buff::note_hud_scale(client_w, client_h, (layout.anchor.sx + layout.anchor.sy) / 2.0);
         self.hud_layout = Some((client_w, client_h, layout));
         self.hud_layout_miss = None;
         self.hud_misses = 0;

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { ServerMonitorCard } from "./ServerMonitorCard";
 import { MesoAlertCard } from "./MesoAlertCard";
+import { BuffAlertCard } from "./BuffAlertCard";
 import { InlineNotice, type Notice } from "./Notice";
 import type { AppSettings } from "../types";
 
@@ -47,7 +48,7 @@ export const AlertSettings: React.FC = () => {
 
   return (
     <div className="space-y-5 max-w-4xl">
-      <p className="text-xs text-slate-400 px-1">服务器真的恢复、金价到了你设的数时提醒你（改完立刻生效）</p>
+      <p className="text-xs text-slate-400 px-1">服务器真的恢复、金价到了你设的数、BUFF 快结束时提醒你（改完立刻生效）</p>
 
       <InlineNotice notice={notice} onClose={() => setNotice(null)} />
 
@@ -66,9 +67,12 @@ export const AlertSettings: React.FC = () => {
 
           <MesoAlertCard />
 
+          <BuffAlertCard />
+
           <div className="p-4 rounded-xl bg-slate-900/40 border border-white/5 text-[11px] text-slate-400 leading-relaxed">
             所有提醒走同一个出口：响铃、任务栏闪烁、右下角弹窗。点「测试开服提醒」能听到、能看到，
-            就说明开服、金价到价、内存到线、黑名单命中时一定会提醒你。
+            就说明开服、金价到价、内存到线、黑名单命中时一定会提醒你。BUFF 提醒在打怪时响，不弹窗，
+            只念一声（或响提示音），用卡片里的「试听」确认。
           </div>
         </div>
       )}

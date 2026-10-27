@@ -577,6 +577,77 @@ export interface MesoAlertConfig {
   below: number | null;
 }
 
+/** 一个要盯的 BUFF（`src-tauri/src/buff/mod.rs`）。 */
+export interface BuffItem {
+  id: string;
+  name: string;
+  enabled: boolean;
+  /** 剩几秒时提醒（1–59） */
+  threshold: number;
+  /** 念出来；关掉只响提示音 */
+  speech: boolean;
+  /** 图标消失时再提醒一次「已结束」 */
+  expire_alert: boolean;
+  /** 图标（框下来的或内置技能图标），PNG base64 */
+  icon_png: string;
+  width: number;
+  height: number;
+  /** 框图标时的客户区高度；内置技能图标是 0 */
+  client_h: number;
+  /** 图标已经是原生（1 倍）像素 */
+  native?: boolean;
+  /** 来自内置技能图标时的技能 ID */
+  skill_id?: string | null;
+}
+
+/** 内置的技能图标（小册子技能图鉴里的 BUFF 类技能）。 */
+export interface BuffSkill {
+  id: string;
+  name: string;
+  /** 会这个技能的职业，多个用 " / " 隔开 */
+  job: string;
+  group: string;
+  /** 32×32 PNG base64 */
+  png: string;
+}
+
+export interface BuffConfig {
+  enabled: boolean;
+  /** 0–100 */
+  volume: number;
+  /** -10–10，0 是正常语速 */
+  rate: number;
+  items: BuffItem[];
+}
+
+export interface BuffItemStatus {
+  id: string;
+  name: string;
+  presence: "unknown" | "present" | "missing";
+  /** 剩余秒数；null = 不知道 */
+  seconds: number | null;
+  /** 还在白字分钟阶段时的分钟数（剩 N 分多）；null = 不是分钟阶段 */
+  minutes: number | null;
+  /** 终点钉住了（提醒靠它） */
+  established: boolean;
+  /** 已经进入提醒阈值 */
+  nearing: boolean;
+}
+
+/** `buff-status` 事件 / `get_buff_status` 的内容。 */
+export interface BuffStatus {
+  running: boolean;
+  note: string;
+  items: BuffItemStatus[];
+}
+
+/** 给「框图标」用的截图：游戏客户区上面 30%，原生分辨率。 */
+export interface BuffSnapshot {
+  png_base64: string;
+  width: number;
+  height: number;
+}
+
 /** 历史里的一段会话。 */
 export interface ExpHistoryRow {
   id: number;
